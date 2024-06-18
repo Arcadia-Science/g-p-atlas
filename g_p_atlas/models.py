@@ -120,7 +120,7 @@ print()
 """A series of phenotype or genotype encoders"""
 
 
-class phenotype_encoder(nn.Module):
+class Phenotype_encoder(nn.Module):
     """Two layer phenotype encoder. Assumes all phenotypes are continuous
     random variables or are 1hot encoded"""
 
@@ -146,7 +146,7 @@ class phenotype_encoder(nn.Module):
         return x
 
 
-class phenotype_denoising_encoder(nn.Module):
+class Phenotype_denoising_encoder(nn.Module):
     """Two layer denoising encoder. Adds gaussian noise to inputs training data"""
 
     def __init__(self, phen_dim=None, N=None):
@@ -174,7 +174,7 @@ class phenotype_denoising_encoder(nn.Module):
         return x
 
 
-class phenotype_encoder_cat_gauss_latent(nn.Module):
+class Phenotype_encoder_cat_gauss_latent(nn.Module):
     """An encoder with a latent space that has both categorical and normally
     distributed dimensions. It is intended to be used with an adversarial archtecture"""
 
@@ -211,7 +211,7 @@ class phenotype_encoder_cat_gauss_latent(nn.Module):
         return (cat_out, norm_out)
 
 
-class genotype_encoder_two_layer(nn.Module):
+class Genotype_encoder_two_layer(nn.Module):
     """Two layer genotype encoder. It expects 1 hot encoded genetic data"""
 
     def __init__(self, n_loci=None, N=None):
@@ -234,7 +234,7 @@ class genotype_encoder_two_layer(nn.Module):
         return x
 
 
-class genotype_denoising_encoder(nn.Module):
+class Genotype_denoising_encoder(nn.Module):
     """Two layer denoising genotype encoder. It adds genetically distributed noise
     to each training example"""
 
@@ -264,7 +264,7 @@ class genotype_denoising_encoder(nn.Module):
 
 
 # decoders
-class phenotype_decoder(nn.Module):
+class Phenotype_decoder(nn.Module):
     """Two layer phenotype decoder."""
 
     def __init__(self, phen_dim=None, N=None):
@@ -289,7 +289,7 @@ class phenotype_decoder(nn.Module):
         return x
 
 
-class phenotype_decoder_cat_gauss_latent(nn.Module):
+class Phenotype_decoder_cat_gauss_latent(nn.Module):
     """A phenotype decoder that expects a latent space with
     dimensions that are categorical and other dimensions that are gaussian.
     It is intended to be used in a adversarial archetecture."""
@@ -318,7 +318,7 @@ class phenotype_decoder_cat_gauss_latent(nn.Module):
         return x
 
 
-class genotype_decoder(nn.Module):
+class Genotype_decoder(nn.Module):
     """A genotype decoder that outputs 1 hot encoded genotypes"""
 
     def __init__(self, n_loci=None, N=None):
@@ -342,7 +342,7 @@ class genotype_decoder(nn.Module):
 the latent space of adversarial networks"""
 
 
-class categorical_genotype_discriminator(nn.Module):
+class Categorical_genotype_discriminator(nn.Module):
     """A categorical discriminator that conditions the latent space to be
     distributed according to the distribution of allelic states"""
 
@@ -365,7 +365,7 @@ class categorical_genotype_discriminator(nn.Module):
         return x
 
 
-class gaussian_discriminator(nn.Module):
+class Gaussian_discriminator(nn.Module):
     """A discriminator that conditions the latent space to be normally
     distributed"""
 
