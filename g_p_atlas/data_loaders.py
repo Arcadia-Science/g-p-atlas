@@ -4,7 +4,7 @@ import torch as torch
 from torch.utils.data.dataset import Dataset
 
 
-class simulated_phen_gen_dataset(Dataset):
+class Simulated_phen_gen_dataset(Dataset):
     """a class for importing noisy simulated genotype-phenotype data.
     It expects a pickled object that is organized as a list of tensors:
     genotypes[n_animals, n_loci, n_alleles] (one hot at allelic state)
@@ -32,7 +32,7 @@ class simulated_phen_gen_dataset(Dataset):
         return phenotypes, genotype, weights
 
 
-class dgrp_phen_gen_dataset(Dataset):
+class Dgrp_phen_gen_dataset(Dataset):
     """a class for importing genotype-phenotype data from the DGRP.
     It expects a pickled object that is organized as a list of tensors:
     genotypes[n_animals, n_loci, n_alleles] (one hot at allelic state)
