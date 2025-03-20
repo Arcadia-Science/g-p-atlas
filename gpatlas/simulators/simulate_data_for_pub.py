@@ -1,5 +1,22 @@
+"""
+This module is a refactored version of the simulation script `tools_for_phen_gen_creation.py`
+from the 'nonlinear phenotypes' pub:
+https://research.arcadiascience.com/pub/result-nonlinear-phenotypes/release/4.
+
+The original script is here:
+https://github.com/Arcadia-Science/accounting-for-nonlinear-phenotypes/blob/v1.0.1/01_code/python/tools_for_phen_gen_creation.py.
+
+Major changes in this refactored version:
+- Extensive variable renaming for improved readability.
+- Additional documentation.
+- Fixes some bugs in the original script.
+
+There is no new functionality added in this refactored version.
+"""
+
 import copy
 import pickle
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -126,11 +143,12 @@ def simulate_data(
                 ].copy()
 
         # Reassign the downsampled weights and active loci indices to the original variables.
-        # TODO (KC): I belive there is a bug here, as the downsampled indices are derived from
-        # `all_active_loci_inds`, but if we don't downsample, then `active_loci_inds`
-        # is never updated to point to `all_active_loci_inds`.
         weights = np.array(downsampled_weights)
         active_loci_inds = np.array(downsampled_active_loci_inds).tolist()  # type: ignore
+    else:
+        # This fixes a bug in the original script in which `active_loci_inds` was not updated
+        # to point to `all_active_loci_inds` when `downsample` is `False`.
+        active_loci_inds = all_active_loci_inds
 
     def make_sample_genotype(
         num_allelic_states: int, num_loci: int
@@ -185,9 +203,6 @@ def simulate_data(
             # active loci with indices greater than the current index.
             for other_active_locus_ind in range(active_locus_ind + 1, num_active_loci):
                 if np.random.binomial(1, interaction_probability):
-                    # TODO (KC): I suspect there is a bug here: we are using `active_loci_inds`,
-                    # not `all_active_loci_inds`, and these will not be the same
-                    # if we didn't downsample.
                     ind_1 = active_loci_inds[phenotype_ind][active_locus_ind]
                     ind_2 = active_loci_inds[phenotype_ind][other_active_locus_ind]
                     if ind_1 not in interacting_locus_inds and ind_2 not in interacting_locus_inds:
@@ -248,43 +263,35 @@ def simulate_data(
     return data, test_data
 
 
-def pleiotropy_interaction_sweep(outpath: str):
+def pleiotropy_interaction_sweep(outpath: str | Path):
     """
-    Utility function that creates a 2d sweep through peleiotropy and interaction probabilities.
+    Utility function that creates a 2D grid sweep through pleiotropy and interaction probabilities.
     """
+    outpath = Path(outpath)
+    outpath.mkdir(parents=True, exist_ok=True)
+
     step_size = 0.1
     probabilities = np.arange(0, 1.0 + step_size, step_size, dtype=float)
 
-    for pleiotropy_probability in probabilities:
-        for interaction_probability in probabilities:
+    for p_pleiotropy in probabilities:
+        for p_interaction in probabilities:
             train_data, test_data = simulate_data(
-                pleiotropy_probability=pleiotropy_probability,
-                interaction_probability=interaction_probability,
+                pleiotropy_probability=p_pleiotropy,
+                interaction_probability=p_interaction,
                 num_samples=3000,
                 noise_strength=0,
                 downsample=True,
             )
-            pickle.dump(
-                train_data,
-                open(
-                    outpath
-                    + "train_data_pleio_"
-                    + str(pleiotropy_probability)
-                    + "_interaction_"
-                    + str(interaction_probability)
-                    + ".pk",
-                    "wb",
-                ),
-            )
-            pickle.dump(
-                test_data,
-                open(
-                    outpath
-                    + "test_data_pleio_"
-                    + str(pleiotropy_probability)
-                    + "_interaction_"
-                    + str(interaction_probability)
-                    + ".pk",
-                    "wb",
-                ),
+
+            train_data_filename = f"train_data_pleio_{p_pleiotropy}_interaction_{p_interaction}.pk"
+            test_data_filename = f"test_data_pleio_{p_pleiotropy}_interaction_{p_interaction}.pk"
+
+            with open(outpath / train_data_filename, "wb") as f:
+                pickle.dump(train_data, f)
+
+            with open(outpath / test_data_filename, "wb") as f:
+                pickle.dump(test_data, f)
+
+            print(
+                f"Completed simulation with pleiotropy={p_pleiotropy}, interaction={p_interaction}"
             )
