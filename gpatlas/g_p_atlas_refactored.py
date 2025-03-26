@@ -1,7 +1,8 @@
+import json
 import pathlib
 import pickle
 import time
-from argparse import ArgumentParser
+from typing import Literal, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from captum.attr import FeatureAblation
+from numpy.typing import NDArray
 from pydantic import BaseModel
 from sklearn.metrics import mean_squared_error, r2_score
 from torch.utils.data.dataset import Dataset
@@ -25,141 +27,6 @@ def mean_absolute_percentage_error(y_true, y_pred):
     return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
 
-def parse_args():
-    parser = ArgumentParser()
-    parser.add_argument(
-        "--n_alleles",
-        type=int,
-        default=2,
-        help="number of segregating causal alleles at any given causal locus",
-    )
-    parser.add_argument(
-        "--n_locs",
-        type=int,
-        default=900,
-        help="number of causal loci to model.  This is the same as the number of genes",
-    )
-    parser.add_argument(
-        "--n_env", type=int, default=3, help="number of influential continuous components"
-    )
-    parser.add_argument("--n_phens", type=int, default=30, help="number of phenotypes")
-    parser.add_argument(
-        "--gen_lw", type=float, default=1, help="weight for the loss attributed to genetic features"
-    )
-    parser.add_argument(
-        "--eng_lw", type=float, default=0.1, help="weight for the loss attributed to env features"
-    )
-    parser.add_argument("--n_epochs", type=int, default=100, help="number of epochs of training")
-    parser.add_argument("--batch_size", type=int, default=16, help="batch size")
-    parser.add_argument("--lr_r", type=float, default=0.001, help="reconstruction learning rate")
-    parser.add_argument("--b1", type=float, default=0.5, help="adam: gradient decay variables")
-    parser.add_argument("--b2", type=float, default=0.999, help="adam: gradient decay variables")
-    parser.add_argument("--n_cpu", type=int, default=14, help="number of cpus")
-    parser.add_argument(
-        "--e_hidden_dim",
-        type=int,
-        default=32,
-        help="number of neurons in the hidden layers of encoder",
-    )
-    parser.add_argument(
-        "--d_hidden_dim",
-        type=int,
-        default=32,
-        help="number of neurons in the hidden layers of decoder",
-    )
-    parser.add_argument(
-        "--ge_hidden_dim",
-        type=int,
-        default=32,
-        help="number of neurons in the hidden layers of the genetic encoder",
-    )
-    parser.add_argument(
-        "--batchnorm_momentum",
-        type=float,
-        default=0.8,
-        help="momentum for the batch normalization layers",
-    )
-    parser.add_argument(
-        "--latent_dim", type=int, default=32, help="number of neurons in the latent space"
-    )
-    parser.add_argument(
-        "--n_phens_to_analyze", type=int, default=30, help="number of phenotypes to analyze"
-    )
-    parser.add_argument("--sd_noise", type=float, default=0.1, help="noise added to phens")
-    parser.add_argument("--gen_noise", type=float, default=0.3, help="noise added to gens")
-    parser.add_argument(
-        "--n_phens_to_predict", type=int, default=30, help="number of phenotypes to predict"
-    )
-    parser.add_argument(
-        "--n_epochs_gen",
-        type=int,
-        default=100,
-        help="number of epochs to train the genetic encoder",
-    )
-    parser.add_argument(
-        "--n_loci_measured",
-        type=int,
-        default=3000,
-        help="number of genetic loci for which there is data",
-    )
-    parser.add_argument(
-        "--l1_lambda",
-        type=float,
-        default=0.8,
-        help="l1 regularization weight for the genetic weights",
-    )
-    parser.add_argument(
-        "--l2_lambda",
-        type=float,
-        default=0.01,
-        help="l2 regularization weight for the genetic weights",
-    )
-    parser.add_argument(
-        "--dataset_path", type=str, default=None, help="where the train and test files are located"
-    )
-    parser.add_argument(
-        "--train_suffix",
-        type=str,
-        default="train.pk",
-        help="name of the training data file, defaults to DGRP dataset",
-    )
-    parser.add_argument(
-        "--test_suffix", type=str, default="test.pk", help="name of the test data file"
-    )
-    parser.add_argument(
-        "--hot_start",
-        type=bool,
-        default=False,
-        help="flag to use precomputed weights, false by default",
-    )
-    parser.add_argument(
-        "--hot_start_path_e",
-        type=str,
-        default=None,
-        help="path to the phenotype encoder weights to use at initialization",
-    )
-    parser.add_argument(
-        "--hot_start_path_d",
-        type=str,
-        default=None,
-        help="path to the phenotype decoder weights to use at initialization",
-    )
-    parser.add_argument(
-        "--hot_start_path_ge",
-        type=str,
-        default=None,
-        help="path to the genotype encoder weights to use at initialization",
-    )
-    parser.add_argument(
-        "--calculate_importance",
-        type=str,
-        default="no",
-        help="flag whether to calculate variable importance. Expects 'no' or 'yes.' ",
-    )
-
-    return parser.parse_args()
-
-
 class GPAtlasModelConfig(BaseModel):
     """
     Configuration parameters for a G-P Atlas model.
@@ -171,10 +38,17 @@ class GPAtlasModelConfig(BaseModel):
     num_input_phenotypes: int = 30  # This was `args.n_phens_to_analyze`
     num_output_phenotypes: int = 30  # This was `args.n_phens_to_predict`
 
-    phenotype_encoder_hidden_dim: int = 32
-    phenotype_decoder_hidden_dim: int = 32
-    genotype_encoder_hidden_dim: int = 32
+    # The dimensions of the hidden layers in the encoder and decoder.
+    # If set to `None`, no hidden layers are used in the corresponding encoder or decoder.
+    phenotype_encoder_hidden_dim: int | None = 32
+    phenotype_decoder_hidden_dim: int | None = 32
+    genotype_encoder_hidden_dim: int | None = 32
 
+    # No model variants currently use a genotype decoder, so this is unused.
+    # It is included for completeness to allow for future model variants.
+    genotype_decoder_hidden_dim: int | None = 32
+
+    # The dimension of the shared latent space.
     latent_dim: int = 32
 
     batchnorm_momentum: float = 0.8
@@ -185,17 +59,25 @@ class GPAtlasTrainerConfig(BaseModel):
     Configuration parameters for a G-P Atlas model trainer.
     """
 
+    # Directory in which to save training logs, checkpoints, and evaluation results.
+    output_dirpath: pathlib.Path
+
+    # Directory from which to hot-start the training process.
+    hot_start_dirpath: pathlib.Path | None = None
+
     seed: int = 47
 
-    num_cores: int = 14
+    num_cores: int = 14  # this was `args.n_cpu`
+
+    # TODO: do we need separate num_epochs for phenotype encoder-decoder and genotype encoder?
     num_epochs: int = 100
+
     batch_size: int = 16
+    learning_rate: float = 0.001  # This was `args.lr_r`
+    betas: tuple[float, float] = (0.5, 0.999)  # This was `args.b1` and `args.b2`
 
-    learning_rate: float = 0.001
-    betas: tuple[float, float] = (0.5, 0.999)
-
-    phenotype_noise_sd: float = 0.1  # This was args.sd_noise
-    genotype_noise_sd: float = 0.3  # This was args.gen_noise
+    phenotype_noise_scale: float = 0.1  # This was args.sd_noise
+    genotype_noise_scale: float = 0.3  # This was args.gen_noise
 
     L1_lambda: float = 0.8
     L2_lambda: float = 0.01
@@ -214,11 +96,8 @@ class GPAtlasDataset(Dataset):
         """
         Initialize a GPAtlasDataset.
 
-        NOTE: `n_phens` was set to `n_phens_to_analyze` in the original implementation.
+        NOTE: `num_phenotypes` was set to `args.n_phens_to_analyze` in the original implementation.
         """
-        self.filepath = filepath
-        self.num_phenotypes = num_phenotypes
-
         with open(filepath, "rb") as f:
             self.dataset = pickle.load(f)
 
@@ -228,9 +107,9 @@ class GPAtlasDataset(Dataset):
         if len(self.phenotypes) != len(self.genotypes):
             raise ValueError("The number of phenotypes and genotypes must be the same.")
 
-        # Crop the phenotypes to the number of phenotypes to analyze.
-        # TODO: is this correct?
-        self.phenotypes = self.phenotypes[:, : self.num_phenotypes]
+        # Crop the phenotypes to the specified number.
+        # TODO: is it best to do this by taking the first `num_phenotypes` phenotypes?
+        self.phenotypes = self.phenotypes[:, :num_phenotypes]
 
     def __len__(self) -> int:
         return len(self.genotypes)
@@ -245,50 +124,68 @@ class Encoder(nn.Module):
     """
     Encoder layer for creating embeddings of genotypes or phenotypes.
     Parameters:
-        input_dim (int): Number of input phenotypes or genotypes.
-        hidden_dim (int): Number of channels in the hidden layer.
-        latent_dim (int): Number of dimensions (neurons) in the latent space.
-        batchnorm_momentum (float): Momentum for the batch normalization layers.
+        input_dim: Number of input phenotypes or genotypes.
+        hidden_dim: Number of channels in the hidden layer. If `None`, no hidden layer is used.
+        latent_dim: Number of dimensions (neurons) in the latent space.
+        batchnorm_momentum: Momentum for the batch normalization layers.
     """
 
-    def __init__(self, input_dim: int, hidden_dim: int, latent_dim: int, batchnorm_momentum: float):
+    def __init__(
+        self, input_dim: int, hidden_dim: int | None, latent_dim: int, batchnorm_momentum: float
+    ):
         super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(in_features=input_dim, out_features=hidden_dim),
-            nn.BatchNorm1d(hidden_dim, momentum=batchnorm_momentum),
-            nn.LeakyReLU(LEAKY_RELU_SLOPE),
-            nn.Linear(in_features=hidden_dim, out_features=latent_dim),
-            nn.BatchNorm1d(latent_dim, momentum=batchnorm_momentum),
-            nn.LeakyReLU(LEAKY_RELU_SLOPE),
-        )
+        self.layers: nn.Sequential
+        if hidden_dim is None:
+            self.layers = nn.Sequential(
+                nn.Linear(in_features=input_dim, out_features=latent_dim),
+                nn.BatchNorm1d(latent_dim, momentum=batchnorm_momentum),
+                nn.LeakyReLU(LEAKY_RELU_SLOPE),
+            )
+        else:
+            self.layers = nn.Sequential(
+                nn.Linear(in_features=input_dim, out_features=hidden_dim),
+                nn.BatchNorm1d(hidden_dim, momentum=batchnorm_momentum),
+                nn.LeakyReLU(LEAKY_RELU_SLOPE),
+                nn.Linear(in_features=hidden_dim, out_features=latent_dim),
+                nn.BatchNorm1d(latent_dim, momentum=batchnorm_momentum),
+                nn.LeakyReLU(LEAKY_RELU_SLOPE),
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.encoder(x)
+        return self.layers(x)
 
 
 class Decoder(nn.Module):
     """
     Decoder layer for decoding embeddings back to the original data space.
     Parameters:
-        latent_dim (int): Number of dimensions (neurons) in the latent space.
-        hidden_dim (int): Number of channels in the hidden layer.
-        output_dim (int): Number of output features.
-        batchnorm_momentum (float): Momentum for the batch normalization layers.
+        latent_dim: Number of dimensions (neurons) in the latent space.
+        hidden_dim: Number of channels in the hidden layer. If `None`, no hidden layer is used.
+        output_dim: Number of output features.
+        batchnorm_momentum: Momentum for the batch normalization layers.
     """
 
     def __init__(
-        self, latent_dim: int, hidden_dim: int, output_dim: int, batchnorm_momentum: float
+        self, latent_dim: int, hidden_dim: int | None, output_dim: int, batchnorm_momentum: float
     ):
         super().__init__()
-        self.decoder = nn.Sequential(
-            nn.Linear(in_features=latent_dim, out_features=hidden_dim),
-            nn.BatchNorm1d(hidden_dim, momentum=batchnorm_momentum),
-            nn.LeakyReLU(LEAKY_RELU_SLOPE),
-            nn.Linear(in_features=hidden_dim, out_features=output_dim),
-        )
+        self.layers: nn.Sequential
+        if hidden_dim is None:
+            self.layers = nn.Sequential(
+                nn.Linear(in_features=latent_dim, out_features=output_dim),
+                nn.BatchNorm1d(output_dim, momentum=batchnorm_momentum),
+                nn.LeakyReLU(LEAKY_RELU_SLOPE),
+            )
+        else:
+            self.layers = nn.Sequential(
+                nn.Linear(in_features=latent_dim, out_features=hidden_dim),
+                nn.BatchNorm1d(hidden_dim, momentum=batchnorm_momentum),
+                nn.LeakyReLU(LEAKY_RELU_SLOPE),
+                nn.Linear(in_features=hidden_dim, out_features=output_dim),
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.decoder(x)
+        return self.layers(x)
 
 
 class GPAtlasModel:
@@ -319,10 +216,6 @@ class GPAtlasModel:
             batchnorm_momentum=config.batchnorm_momentum,
         )
 
-        # This is for feature importance using captum at evaluation time.
-        self.genotype_feature_ablator = FeatureAblation(self.genotype_phenotype_forward)
-        self.phenotype_feature_ablator = FeatureAblation(self.phenotype_phenotype_forward)
-
     def load_from_checkpoint(self, dirpath: str | pathlib.Path) -> None:
         """
         Load weights from a prior run or checkpoint.
@@ -352,32 +245,6 @@ class GPAtlasModel:
         self.phenotype_decoder.to(device)
         self.genotype_encoder.to(device)
 
-    def genotype_phenotype_forward(
-        self, inputs: torch.Tensor, baselines: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Function to use for calculating feature importance for genotype-phenotype prediction
-        using captum's `FeatureAblation` class.
-        """
-        encoded_genotype = self.genotype_encoder(inputs)
-        decoded_phenotype = self.phenotype_decoder(encoded_genotype)
-        return F.mse_loss(
-            decoded_phenotype + EPS, baselines[:, : self.config.num_output_phenotypes] + EPS
-        )
-
-    def phenotype_phenotype_forward(
-        self, inputs: torch.Tensor, baselines: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Function to use for calculating feature importance for phenotype-phenotype prediction
-        using captum's `FeatureAblation` class.
-        """
-        encoded_phenotype = self.phenotype_encoder(inputs)
-        decoded_phenotype = self.phenotype_decoder(encoded_phenotype)
-        return F.mse_loss(
-            decoded_phenotype + EPS, baselines[:, : self.config.num_output_phenotypes] + EPS
-        )
-
     def freeze_phenotype_encoder_decoder(self) -> None:
         """
         Freeze the phenotype encoder and decoder and switch to evaluation mode.
@@ -397,19 +264,22 @@ class GPAtlasModel:
 
 
 class GPAtlasTrainer:
+    """
+    A class for training a G-P Atlas model in two stages:
+    1. A phenotype-phenotype autoencoder is trained to reconstruct phenotypes.
+    2. A genotype encoder is trained to embed genotypes into the latent space
+        learned by the phenotype autoencoder by using the phenotype decoder trained
+        in the first stage to decode the genotype embeddings back to the phenotype space.
+    """
+
     def __init__(
-        self,
-        model: GPAtlasModel,
-        config: GPAtlasTrainerConfig,
-        train_loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
-        device: torch.device,
+        self, model: GPAtlasModel, config: GPAtlasTrainerConfig, device: torch.device
     ) -> None:
         """
         Initialize a trainer for a G-P Atlas model.
         """
         self.model = model
         self.config = config
-        self.train_loader = train_loader
         self.device = device
 
         self.phenotype_encoder_decoder_training_losses: list[float] = []
@@ -433,7 +303,9 @@ class GPAtlasTrainer:
             betas=self.config.betas,
         )
 
-    def train_phenotype_encoder_decoder(self) -> None:
+    def _train_phenotype_encoder_decoder(
+        self, loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]]
+    ) -> None:
         """
         Train the phenotype encoder and decoder.
         """
@@ -444,7 +316,7 @@ class GPAtlasTrainer:
         for epoch_idx in range(self.config.num_epochs):
             epoch_start_time = time.time()
 
-            for batch_idx, (_, phenotypes) in enumerate(self.train_loader):
+            for _, phenotypes in enumerate(loader):
                 phenotypes = phenotypes.to(self.device)
 
                 # Initialize gradients for training.
@@ -453,37 +325,39 @@ class GPAtlasTrainer:
 
                 # Add noise to phenotypes.
                 noise = torch.randn(phenotypes.shape, device=self.device)
-                noisy_phenotypes = phenotypes + (self.config.phenotype_noise_sd**0.5) * noise
+                noisy_phenotypes = phenotypes + (self.config.phenotype_noise_scale**0.5) * noise
 
                 # Encode and decode the phenotypes.
-                encoded_phenotypes = self.model.phenotype_encoder(noisy_phenotypes)
-                decoded_phenotypes = self.model.phenotype_decoder(encoded_phenotypes)
+                embeddings = self.model.phenotype_encoder(noisy_phenotypes)
+                decoded_phenotypes = self.model.phenotype_decoder(embeddings)
 
                 # Calculate the reconstruction loss.
                 # TODO: `num_output_phenotypes` will only have an effect here
                 # if it is less than `n_phens`.
-                epoch_recon_loss = F.mse_loss(
+                loss = F.mse_loss(
                     decoded_phenotypes + EPS,
                     phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
                 )
 
                 # Back propagate and update the model parameters.
-                epoch_recon_loss.backward()
+                loss.backward()
                 self.phenotype_decoder_optimizer.step()
                 self.phenotype_encoder_optimizer.step()
 
-                training_losses.append(float(epoch_recon_loss.detach()))
+                training_losses.append(float(loss.detach()))
 
             elapsed_time = time.time() - epoch_start_time
             print(
-                f"Epoch: {epoch_idx}, batch: {batch_idx}, "
+                f"Epoch: {epoch_idx}, "
                 f"Training loss: {training_losses[-1]}, "
                 f"Epoch duration: {elapsed_time}"
             )
 
         self.phenotype_encoder_decoder_training_losses = training_losses
 
-    def train_genotype_encoder(self) -> None:
+    def _train_genotype_encoder(
+        self, loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]]
+    ) -> None:
         """
         Train the genotype encoder.
         This assumes that the phenotype encoder and decoder are pre-trained and frozen.
@@ -494,7 +368,7 @@ class GPAtlasTrainer:
         for epoch_idx in range(self.config.num_epochs):
             epoch_start_time = time.time()
 
-            for batch_idx, (genotypes, phenotypes) in enumerate(self.train_loader):
+            for genotypes, phenotypes in loader:
                 genotypes = genotypes.to(self.device)
                 phenotypes = phenotypes.to(self.device)
 
@@ -507,10 +381,10 @@ class GPAtlasTrainer:
                 # TODO: refactor to use torch.bernoulli in order to ensure reproducibility here.
                 # (because torch.manual_seed won't affect np.random.binomial).
                 pos_noise = np.random.binomial(
-                    1, (1 - self.config.genotype_noise_sd) / 2, genotypes.shape
+                    1, (1 - self.config.genotype_noise_scale) / 2, genotypes.shape
                 )
                 neg_noise = np.random.binomial(
-                    1, (1 - self.config.genotype_noise_sd) / 2, genotypes.shape
+                    1, (1 - self.config.genotype_noise_scale) / 2, genotypes.shape
                 )
 
                 # Add the noise to the genetic data.
@@ -521,41 +395,54 @@ class GPAtlasTrainer:
                 )
 
                 self.model.genotype_encoder.zero_grad()
-                encoded_genotypes = self.model.genotype_encoder(noisy_genotypes)
-                decoded_phenotypes = self.model.phenotype_decoder(encoded_genotypes)
+                embeddings = self.model.genotype_encoder(noisy_genotypes)
+                decoded_phenotypes = self.model.phenotype_decoder(embeddings)
 
-                batch_recon_loss = F.mse_loss(
+                loss = F.mse_loss(
                     decoded_phenotypes + EPS,
                     phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
                 )
 
-                training_losses.append(float(batch_recon_loss.detach()))
+                training_losses.append(float(loss.detach()))
 
                 # Calculate the L1 and L2 norms for the weights in the first layer
                 # of the genetic encoder and add them to the reconstruction loss.
-                # TODO: why do we take a sum here prior to taking the norm?
-                weights_sum = torch.sum(self.model.genotype_encoder.encoder[0].weight, axis=0)  # type: ignore
+                # TODO: why do we take a sum over the first dimension here?
+                # This tensor should have shape `(latent_dim, n_loci * n_alleles)`.
+                weights_sum = torch.sum(self.model.genotype_encoder.layers[0].weight, axis=0)  # type: ignore
 
                 L1_norm = torch.linalg.norm(weights_sum, 1)
                 L2_norm = torch.linalg.norm(weights_sum, 2)
 
                 # TODO: shouldn't the L2 norm be squared here?
-                batch_recon_loss += (
-                    L1_norm * self.config.L1_lambda + L2_norm * self.config.L2_lambda
-                )
+                loss += L1_norm * self.config.L1_lambda + L2_norm * self.config.L2_lambda
 
-                batch_recon_loss.backward()
+                loss.backward()
                 self.genotype_encoder_optimizer.step()
 
             elapsed_time = time.time() - epoch_start_time
             print(
-                f"Epoch: {epoch_idx}, Batch: {batch_idx}, Training loss: {training_losses[-1]}, "
+                f"Epoch: {epoch_idx}, "
+                f"Training loss: {training_losses[-1]}, "
                 f"Epoch duration: {elapsed_time}"
             )
 
         self.genotype_encoder_training_losses = training_losses
 
-    def plot_reconstruction_losses(self) -> None:
+    def train(self, loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]]) -> None:
+        """
+        Train the model.
+        """
+        # First train the phenotype encoder and decoder.
+        self._train_phenotype_encoder_decoder(loader=loader)
+
+        # Freeze the phenotype encoder and decoder before training the genotype encoder.
+        self.model.freeze_phenotype_encoder_decoder()
+
+        # With the phenotype encoder and decoder frozen, train the genotype encoder.
+        self._train_genotype_encoder(loader=loader)
+
+    def plot_training_losses(self) -> None:
         """
         Plot all of the training losses.
         """
@@ -565,194 +452,203 @@ class GPAtlasTrainer:
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.legend()
-        plt.savefig(self.config.dataset_path + "reconstruction_loss.svg")
+        plt.savefig(self.config.output_dirpath / "reconstruction_loss.svg")
         plt.close()
+
+    def calculate_feature_importance(
+        self,
+        loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
+        encoder_type: Literal["genotype", "phenotype"],
+    ) -> NDArray[np.float32]:
+        """
+        Calculate the importance of each input feature (genotype or phenotype)
+        for predicting all of the phenotypes.
+        """
+        self.model.to(self.device)
+
+        if encoder_type not in ["genotype", "phenotype"]:
+            raise ValueError(f"Invalid kind: {encoder_type}")
+
+        def forward_func(inputs: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+            """
+            Forward function for the feature ablation method from Captum.
+            """
+            genotypes, phenotypes = inputs
+            embeddings: torch.Tensor
+            if encoder_type == "genotype":
+                embeddings = self.model.genotype_encoder(genotypes)
+            elif encoder_type == "phenotype":
+                embeddings = self.model.phenotype_encoder(phenotypes)
+            decoded_phenotypes = self.model.phenotype_decoder(embeddings)
+            return F.mse_loss(
+                decoded_phenotypes + EPS,
+                phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
+            )
+
+        ablator = FeatureAblation(forward_func)
+
+        attributions: list[list[float]] = []
+        for genotypes, phenotypes in loader:
+            genotypes = genotypes.to(self.device)
+            phenotypes = phenotypes.to(self.device)
+            with torch.no_grad():
+                attribution = ablator.attribute(inputs=(genotypes, phenotypes))
+            attributions.append(list(attribution[0].squeeze().detach().cpu().numpy()))
+
+        return np.array(attributions)
+
+    def predict_phenotypes(
+        self,
+        loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
+        encoder_type: Literal["genotype", "phenotype"],
+    ) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
+        """
+        Predict phenotypes using either genotypes or phenotypes as input.
+        """
+        self.model.to(self.device)
+
+        all_original_phenotypes: list[NDArray[np.float32]] = []
+        all_decoded_phenotypes: list[NDArray[np.float32]] = []
+        all_embeddings: list[NDArray[np.float32]] = []
+
+        for genotypes, phenotypes in loader:
+            genotypes = genotypes[
+                :, : self.model.config.n_loci_measured * self.model.config.n_alleles
+            ]
+            genotypes = genotypes.to(self.device)
+            phenotypes = phenotypes.to(self.device)
+
+            with torch.no_grad():
+                embeddings: torch.Tensor
+                if encoder_type == "genotype":
+                    embeddings = self.model.genotype_encoder(genotypes)
+                elif encoder_type == "phenotype":
+                    embeddings = self.model.phenotype_encoder(phenotypes)
+
+                decoded_phenotypes = self.model.phenotype_decoder(embeddings)
+
+            all_original_phenotypes += list(phenotypes.detach().cpu().numpy())
+            all_decoded_phenotypes += list(decoded_phenotypes.detach().cpu().numpy())
+            all_embeddings += list(embeddings.detach().cpu().numpy())
+
+        return (
+            np.array(all_original_phenotypes),
+            np.array(all_decoded_phenotypes),
+            np.array(all_embeddings),
+        )
 
 
 def analyze_predictions(
-    phens,
-    phen_encodings,
-    phen_latent,
-    fa_attr,
-    dataset_path,
-    n_phens_pred,
-    model_type="g_p",
-):
+    original_phenotypes: NDArray[np.float32],
+    decoded_phenotypes: NDArray[np.float32],
+    embeddings: NDArray[np.float32],
+    feature_attributions: NDArray[np.float32],
+    dataset_path: str | pathlib.Path,
+    num_output_phenotypes: int,
+    encoder_type: Literal["genotype", "phenotype"] = "genotype",
+) -> None:
     """
     Evaluate the performance of each model, saving summaries of model performance.
 
     Parameters
     ----------
-    phens : list
+    original_phenotypes : list
         List of real phenotype values (numpy arrays) from model evaluation
-    phen_encodings : list
+    decoded_phenotypes : list
         List of predicted phenotype values (numpy arrays) from model evaluation
-    phen_latent : list
+    embeddings : list
         List of latent space representations (numpy arrays) from model evaluation
-    fa_attr : list
+    feature_attributions : list
         List of feature attribution values (numpy arrays) from captum analysis
     dataset_path : str
         Path to directory where all output files should be saved
-    n_phens_pred : int
-        Number of phenotypes to analyze and plot (uses first n_phens_pred phenotypes)
-    model_type : str, optional
-        Type of prediction being analyzed - either 'g_p' (genotype-phenotype) or
-        'p_p' (phenotype-phenotype). Affects file naming and data saving. Default is 'g_p'
+    num_output_phenotypes : int
+        Number of phenotypes to analyze and plot (uses first num_output_phenotypes phenotypes)
+    encoder_type : str, optional
+        Type of prediction being analyzed - either 'genotype' or 'phenotype'.
+        Affects file naming and data saving. Default is 'genotype'
 
     Returns
     -------
-    list
-        List of metric results, containing in order: Pearson correlations, MSE values,
-        MAPE values, and R2 scores for the first n_phens_pred phenotypes
+    None
     """
-    suffix = "_p" if model_type == "p_p" else ""
+    dataset_path = pathlib.Path(dataset_path)
 
-    # Save attributions
-    plt.hist(fa_attr, bins=20)
-    plt.savefig(dataset_path + f"{model_type}_attr.svg")
+    # "PE" for "phenotype encoder" and "GE" for "genotype encoder".
+    suffix = "PE" if encoder_type == "phenotype" else "GE"
+
+    # Plot and save feature attributions.
+    plt.hist(feature_attributions, bins=20)
+    plt.savefig(dataset_path / f"{encoder_type}_feature_attributions.svg")
     plt.close()
-    if fa_attr != []:
-        pickle.dump(fa_attr, open(dataset_path + f"{model_type}_attr.pk", "wb"))
+    with open(dataset_path / f"{encoder_type}_feature_attributions.pk", "wb") as file:
+        pickle.dump(feature_attributions, file)
 
-    # Convert and transpose data
-    phens = np.array(phens).T
-    phen_encodings = np.array(phen_encodings).T
+    original_phenotypes = original_phenotypes.T
+    decoded_phenotypes = decoded_phenotypes.T
+    embeddings = embeddings.T
 
-    # Save predictions data
-    if model_type == "p_p":
-        phen_latent = np.array(phen_latent).T
+    # Save the original, decoded, and encoded phenotypes.
+    with open(dataset_path / f"phens_phen_encodings_dng_attr{suffix}.pk", "wb") as file:
         pickle.dump(
-            [phens, phen_encodings, phen_latent],
-            open(dataset_path + f"phens_phen_encodings_dng_attr{suffix}.pk", "wb"),
-        )
-    else:
-        pickle.dump(
-            [phens, phen_encodings],
-            open(dataset_path + f"phens_phen_encodings_dng_attr{suffix}.pk", "wb"),
+            [original_phenotypes, decoded_phenotypes, embeddings],
+            file,
         )
 
-    # Plot predictions
-    for n in range(len(phens[:n_phens_pred])):
-        plt.plot(phens[n], phen_encodings[n], "o")
+    # Plot decoded phenotypes vs. original phenotypes.
+    for n in range(num_output_phenotypes):
+        plt.plot(original_phenotypes[n], decoded_phenotypes[n], "o")
+
     plt.xlabel("real")
     plt.ylabel("predicted")
     plt.gca().set_aspect("equal")
-    plt.savefig(dataset_path + f"phen_real_pred_dng_attr{suffix}.svg")
+    plt.savefig(dataset_path / f"phen_real_pred_dng_attr{suffix}.svg")
     plt.close()
 
-    # Calculate and plot metrics
-    stats_aggregator = []
+    summary_stats: dict[str, list[float]] = {}
 
-    # Pearson correlation
-    cors = [
-        sc.stats.pearsonr(phens[n], phen_encodings[n])[0] for n in range(len(phens[:n_phens_pred]))
+    # Pearson correlation.
+    pearson_correlations = [
+        sc.stats.pearsonr(original_phenotypes[n], decoded_phenotypes[n])[0]
+        for n in range(num_output_phenotypes)
     ]
-    stats_aggregator.append(cors)
-    plt.hist(cors, bins=20)
-    plt.savefig(dataset_path + f"phen_real_pred_pearsonsr_dng_attr{suffix}.svg")
+    summary_stats["pearson_correlation"] = cast(list[float], pearson_correlations)
+    plt.hist(pearson_correlations, bins=20)
+    plt.savefig(dataset_path / f"phen_real_pred_pearson_correlation_dng_attr{suffix}.svg")
     plt.close()
 
-    # MSE
-    errs = [
-        mean_squared_error(phens[n], phen_encodings[n]) for n in range(len(phens[:n_phens_pred]))
+    # Mean squared error.
+    mse_values = [
+        mean_squared_error(original_phenotypes[n], decoded_phenotypes[n])
+        for n in range(num_output_phenotypes)
     ]
-    stats_aggregator.append(errs)
-    plt.hist(errs, bins=20)
-    plt.savefig(dataset_path + f"phen_real_pred_mse_dng_attr{suffix}.svg")
+    summary_stats["mse"] = cast(list[float], mse_values)
+    plt.hist(mse_values, bins=20)
+    plt.savefig(dataset_path / f"phen_real_pred_mse_dng_attr{suffix}.svg")
     plt.close()
 
-    # MAPE
-    errs = [
-        mean_absolute_percentage_error(phens[n], phen_encodings[n])
-        for n in range(len(phens[:n_phens_pred]))
+    # Mean absolute percentage error.
+    mape_values = [
+        mean_absolute_percentage_error(original_phenotypes[n], decoded_phenotypes[n])
+        for n in range(num_output_phenotypes)
     ]
-    stats_aggregator.append(errs)
-    plt.hist(errs, bins=20)
-    plt.savefig(dataset_path + f"phen_real_pred_mape_dng_attr{suffix}.svg")
+    summary_stats["mape"] = cast(list[float], mape_values)
+    plt.hist(mape_values, bins=20)
+    plt.savefig(dataset_path / f"phen_real_pred_mape_dng_attr{suffix}.svg")
     plt.close()
 
-    # R2
-    errs = [r2_score(phens[n], phen_encodings[n]) for n in range(len(phens[:n_phens_pred]))]
-    stats_aggregator.append(errs)
-    plt.hist(errs, bins=20)
-    plt.savefig(dataset_path + f"phen_real_pred_r2_dng_attr{suffix}.svg")
+    # R-squared
+    r2_values = [
+        r2_score(original_phenotypes[n], decoded_phenotypes[n])
+        for n in range(num_output_phenotypes)
+    ]
+    summary_stats["r2"] = cast(list[float], r2_values)
+    plt.hist(r2_values, bins=20)
+    plt.savefig(dataset_path / f"phen_real_pred_r2_dng_attr{suffix}.svg")
     plt.close()
 
-    return stats_aggregator
-
-
-def evaluate_model():
-    """
-    TODO: figure out where this should live.
-    """
-    out_stats = open(dataset_path + "test_stats.pk", "wb")
-    stats_aggregator = []
-
-    # G-P prediction. Loop evaluating the performance on the test data
-    genotype_encoder.eval()
-    phens, phen_encodings, phen_latent, fa_attr = [], [], [], []
-
-    for dat in test_loader_geno:
-        ph, gt = dat
-        gt = gt[:, : args.n_loci_measured * args.n_alleles]
-        ph = ph.to(device)
-        gt = gt.to(device)
-        batch_size = ph.shape[0]
-        z_sample = genotype_encoder(gt)
-        X_sample = phenotype_decoder(z_sample)
-        phens += list(ph.detach().cpu().numpy())
-        phen_encodings += list(X_sample.detach().cpu().numpy())
-        phen_latent += list(z_sample.detach().cpu().numpy())
-        if args.calculate_importance == "yes":
-            fa_attr.append(
-                list(
-                    genotype_feature_ablation.attribute(inputs=(gt, ph))[0]
-                    .squeeze()
-                    .detach()
-                    .cpu()
-                    .numpy()
-                )
-            )
-
-    stats_aggregator.extend(
-        analyze_predictions(
-            phens, phen_encodings, phen_latent, fa_attr, dataset_path, n_phens_pred, "g_p"
-        )
-    )
-
-    # P-P prediction. Loop evaluating the performance on the test data
-    phenotype_encoder.eval()
-    phens, phen_encodings, phen_latent, fa_attr = [], [], [], []
-
-    for dat in test_loader_pheno:
-        ph = dat
-        ph = ph.to(device)
-        batch_size = ph.shape[0]
-        z_sample = phenotype_encoder(ph)
-        X_sample = phenotype_decoder(z_sample)
-        phens += list(ph.detach().cpu().numpy())
-        phen_encodings += list(X_sample.detach().cpu().numpy())
-        phen_latent += list(z_sample.detach().cpu().numpy())
-        if args.calculate_importance == "yes":
-            fa_attr.append(
-                list(
-                    phenotype_feature_ablation.attribute(inputs=(ph, ph))[0]
-                    .squeeze()
-                    .detach()
-                    .cpu()
-                    .numpy()
-                )
-            )
-
-    stats_aggregator.extend(
-        analyze_predictions(
-            phens, phen_encodings, phen_latent, fa_attr, dataset_path, n_phens_pred, "p_p"
-        )
-    )
-
-    # Save and close stats
-    pickle.dump(stats_aggregator, out_stats)
-    out_stats.close()
+    with open(dataset_path / f"test_stats{suffix}.json", "w") as file:
+        json.dump(summary_stats, file)
 
 
 def main():
@@ -774,7 +670,7 @@ def main():
         filepath=(dataset_filepath + "train.pk"), num_phenotypes=model_config.num_input_phenotypes
     )
 
-    val_dataset = GPAtlasDataset(
+    test_dataset = GPAtlasDataset(
         filepath=(dataset_filepath + "test.pk"), num_phenotypes=model_config.num_input_phenotypes
     )
 
@@ -785,11 +681,13 @@ def main():
         shuffle=True,
     )
 
-    val_loader = torch.utils.data.DataLoader(
-        dataset=val_dataset,
+    test_loader = torch.utils.data.DataLoader(
+        dataset=test_dataset,
         batch_size=1,
         num_workers=trainer_config.num_cores,
-        shuffle=True,
+        # Important: we do *not* shuffle the test set so that the order of the samples
+        # is preserved across evaluation loops.
+        shuffle=False,
     )
 
     model = GPAtlasModel(config=model_config)
@@ -797,20 +695,35 @@ def main():
     if trainer_config.hot_start:
         model.load_from_checkpoint(dirpath=trainer_config.hot_start_dirpath)
 
-    trainer = GPAtlasTrainer(
-        model=model, config=trainer_config, train_loader=train_loader, device=device
-    )
+    trainer = GPAtlasTrainer(model=model, config=trainer_config, device=device)
 
-    trainer.train_phenotype_encoder_decoder()
+    trainer.train(loader=train_loader)
+    trainer.plot_training_losses()
 
-    # Freeze the phenotype encoder and decoder before training the genotype encoder.
-    model.freeze_phenotype_encoder_decoder()
+    encoder_types: list[Literal["genotype", "phenotype"]] = ["genotype", "phenotype"]
 
-    trainer.train_genotype_encoder()
+    for encoder_type in encoder_types:
+        # Predict phenotypes.
+        (
+            all_original_phenotypes,
+            all_decoded_phenotypes,
+            all_encoded_genotypes,
+        ) = trainer.predict_phenotypes(loader=test_loader, encoder_type=encoder_type)
 
-    plot_reconstruction_losses()
+        # Calculate the importance of each input feature for predicting all of the phenotypes.
+        feature_attributions = trainer.calculate_feature_importance(
+            loader=test_loader, encoder_type=encoder_type
+        )
 
-    evaluate_model()
+        analyze_predictions(
+            original_phenotypes=np.array(all_original_phenotypes),
+            decoded_phenotypes=np.array(all_decoded_phenotypes),
+            embeddings=np.array(all_encoded_genotypes),
+            feature_attributions=feature_attributions,
+            dataset_path=trainer_config.output_dirpath,
+            num_output_phenotypes=model_config.num_output_phenotypes,
+            encoder_type=encoder_type,
+        )
 
 
 if __name__ == "__main__":
