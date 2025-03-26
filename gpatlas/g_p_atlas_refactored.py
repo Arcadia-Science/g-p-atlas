@@ -17,6 +17,8 @@ from torch.utils.data.dataset import Dataset
 # define a minimum value for variables to avoid divide by zero and buffer underflow.
 EPS = 1e-15
 
+LEAKY_RELU_SLOPE = 0.01
+
 
 def mean_absolute_percentage_error(y_true, y_pred):
     y_true, y_pred = np.array(y_true + EPS), np.array(y_pred)
@@ -250,14 +252,14 @@ class Encoder(nn.Module):
     """
 
     def __init__(self, input_dim: int, hidden_dim: int, latent_dim: int, batchnorm_momentum: float):
-        super().__init__()  # type: ignore
+        super().__init__()
         self.encoder = nn.Sequential(
             nn.Linear(in_features=input_dim, out_features=hidden_dim),
             nn.BatchNorm1d(hidden_dim, momentum=batchnorm_momentum),
-            nn.LeakyReLU(0.01, inplace=True),
+            nn.LeakyReLU(LEAKY_RELU_SLOPE),
             nn.Linear(in_features=hidden_dim, out_features=latent_dim),
             nn.BatchNorm1d(latent_dim, momentum=batchnorm_momentum),
-            nn.LeakyReLU(0.01, inplace=True),
+            nn.LeakyReLU(LEAKY_RELU_SLOPE),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -277,11 +279,11 @@ class Decoder(nn.Module):
     def __init__(
         self, latent_dim: int, hidden_dim: int, output_dim: int, batchnorm_momentum: float
     ):
-        super().__init__()  # type: ignore
+        super().__init__()
         self.decoder = nn.Sequential(
             nn.Linear(in_features=latent_dim, out_features=hidden_dim),
             nn.BatchNorm1d(hidden_dim, momentum=batchnorm_momentum),
-            nn.LeakyReLU(0.01),
+            nn.LeakyReLU(LEAKY_RELU_SLOPE),
             nn.Linear(in_features=hidden_dim, out_features=output_dim),
         )
 
@@ -311,7 +313,7 @@ class GPAtlasModel:
 
         # Note that the input dimension is the number of loci multiplied by the number of alleles.
         self.genotype_encoder = Encoder(
-            input_dim=config.n_loci_measured * config.n_alleles,
+            input_dim=(config.n_loci_measured * config.n_alleles),
             hidden_dim=config.genotype_encoder_hidden_dim,
             latent_dim=config.latent_dim,
             batchnorm_momentum=config.batchnorm_momentum,
@@ -326,29 +328,23 @@ class GPAtlasModel:
         Load weights from a prior run or checkpoint.
         """
         dirpath = pathlib.Path(dirpath)
-        self.phenotype_encoder.load_state_dict(
-            torch.load(dirpath / "phenotype_encoder_state.pt", weights_only=True),  # type: ignore
-            strict=False,
-        )
-        self.phenotype_decoder.load_state_dict(
-            torch.load(dirpath / "phenotype_decoder_state.pt", weights_only=True),  # type: ignore
-            strict=False,
-        )
-        self.genotype_encoder.load_state_dict(
-            torch.load(dirpath / "genotype_encoder_state.pt", weights_only=True),  # type: ignore
-            strict=False,
-        )
+        for layer_name in ["phenotype_encoder", "phenotype_decoder", "genotype_encoder"]:
+            layer = getattr(self, layer_name)
+            layer.load_state_dict(
+                torch.load(dirpath / f"{layer_name}_state.pt", weights_only=True),
+                strict=False,
+            )
 
     def save_to_checkpoint(self, dirpath: str | pathlib.Path) -> None:
         """
         Save the model to a checkpoint.
         """
         dirpath = pathlib.Path(dirpath)
-        torch.save(self.phenotype_encoder.state_dict(), dirpath / "phenotype_encoder_state.pt")  # type: ignore
-        torch.save(self.phenotype_decoder.state_dict(), dirpath / "phenotype_decoder_state.pt")  # type: ignore
-        torch.save(self.genotype_encoder.state_dict(), dirpath / "genotype_encoder_state.pt")  # type: ignore
+        for layer_name in ["phenotype_encoder", "phenotype_decoder", "genotype_encoder"]:
+            layer = getattr(self, layer_name)
+            torch.save(layer.state_dict(), dirpath / f"{layer_name}_state.pt")
 
-    def to_device(self, device: torch.device) -> None:
+    def to(self, device: torch.device) -> None:
         """
         Move the model to a specific device.
         """
@@ -416,7 +412,10 @@ class GPAtlasTrainer:
         self.train_loader = train_loader
         self.device = device
 
-        torch.manual_seed(self.config.seed)  # type: ignore
+        self.phenotype_encoder_decoder_training_losses: list[float] = []
+        self.genotype_encoder_training_losses: list[float] = []
+
+        torch.manual_seed(self.config.seed)
 
         self.phenotype_decoder_optimizer = torch.optim.Adam(
             model.phenotype_decoder.parameters(),
@@ -439,7 +438,8 @@ class GPAtlasTrainer:
         Train the phenotype encoder and decoder.
         """
 
-        phenotypes_recon_losses: list[float] = []
+        self.model.to(self.device)
+        training_losses: list[float] = []
 
         for epoch_idx in range(self.config.num_epochs):
             epoch_start_time = time.time()
@@ -447,19 +447,19 @@ class GPAtlasTrainer:
             for batch_idx, (_, phenotypes) in enumerate(self.train_loader):
                 phenotypes = phenotypes.to(self.device)
 
-                # initialize gradients for training.
+                # Initialize gradients for training.
                 self.model.phenotype_decoder.zero_grad()
                 self.model.phenotype_encoder.zero_grad()
 
-                # add noise to phenotypes
+                # Add noise to phenotypes.
                 noise = torch.randn(phenotypes.shape, device=self.device)
                 noisy_phenotypes = phenotypes + (self.config.phenotype_noise_sd**0.5) * noise
 
-                # encode and decode the phenotypes.
+                # Encode and decode the phenotypes.
                 encoded_phenotypes = self.model.phenotype_encoder(noisy_phenotypes)
                 decoded_phenotypes = self.model.phenotype_decoder(encoded_phenotypes)
 
-                # calculate the reconstruction loss.
+                # Calculate the reconstruction loss.
                 # TODO: `num_output_phenotypes` will only have an effect here
                 # if it is less than `n_phens`.
                 epoch_recon_loss = F.mse_loss(
@@ -467,27 +467,29 @@ class GPAtlasTrainer:
                     phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
                 )
 
-                # back propagate and update the model parameters.
-                epoch_recon_loss.backward()  # type: ignore
-                self.phenotype_decoder_optimizer.step()  # type: ignore
-                self.phenotype_encoder_optimizer.step()  # type: ignore
+                # Back propagate and update the model parameters.
+                epoch_recon_loss.backward()
+                self.phenotype_decoder_optimizer.step()
+                self.phenotype_encoder_optimizer.step()
 
-                phenotypes_recon_losses.append(float(epoch_recon_loss.detach()))
+                training_losses.append(float(epoch_recon_loss.detach()))
 
             elapsed_time = time.time() - epoch_start_time
             print(
                 f"Epoch: {epoch_idx}, batch: {batch_idx}, "
-                f"Training reconstruction loss: {phenotypes_recon_losses[-1]}, "
+                f"Training loss: {training_losses[-1]}, "
                 f"Epoch duration: {elapsed_time}"
             )
+
+        self.phenotype_encoder_decoder_training_losses = training_losses
 
     def train_genotype_encoder(self) -> None:
         """
         Train the genotype encoder.
         This assumes that the phenotype encoder and decoder are pre-trained and frozen.
         """
-
-        genotypes_recon_loss: list[float] = []
+        self.model.to(self.device)
+        training_losses: list[float] = []
 
         for epoch_idx in range(self.config.num_epochs):
             epoch_start_time = time.time()
@@ -502,8 +504,8 @@ class GPAtlasTrainer:
                     :, : self.model.config.n_loci_measured * self.model.config.n_alleles
                 ]
 
-                # TODO: refactor here to use torch.bernoulli in order to ensure reproducibility
-                # (via torch.manual_seed).
+                # TODO: refactor to use torch.bernoulli in order to ensure reproducibility here.
+                # (because torch.manual_seed won't affect np.random.binomial).
                 pos_noise = np.random.binomial(
                     1, (1 - self.config.genotype_noise_sd) / 2, genotypes.shape
                 )
@@ -511,7 +513,7 @@ class GPAtlasTrainer:
                     1, (1 - self.config.genotype_noise_sd) / 2, genotypes.shape
                 )
 
-                # add the noise to the genetic data.
+                # Add the noise to the genetic data.
                 noisy_genotypes = torch.tensor(
                     np.where((genotypes + pos_noise - neg_noise) > 0, 1, 0),
                     dtype=torch.float32,
@@ -527,38 +529,44 @@ class GPAtlasTrainer:
                     phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
                 )
 
-                genotypes_recon_loss.append(float(batch_recon_loss.detach()))
+                training_losses.append(float(batch_recon_loss.detach()))
 
                 # Calculate the L1 and L2 norms for the weights in the first layer
                 # of the genetic encoder and add them to the reconstruction loss.
                 # TODO: why do we take a sum here prior to taking the norm?
                 weights_sum = torch.sum(self.model.genotype_encoder.encoder[0].weight, axis=0)  # type: ignore
 
-                L1_norm = torch.linalg.norm(weights_sum, 1)  # type: ignore
-                L2_norm = torch.linalg.norm(weights_sum, 2)  # type: ignore
+                L1_norm = torch.linalg.norm(weights_sum, 1)
+                L2_norm = torch.linalg.norm(weights_sum, 2)
 
-                # TODO: shouldn't the L2 norm be squared?
+                # TODO: shouldn't the L2 norm be squared here?
                 batch_recon_loss += (
                     L1_norm * self.config.L1_lambda + L2_norm * self.config.L2_lambda
                 )
 
-                batch_recon_loss.backward()  # type: ignore
-                self.genotype_encoder_optimizer.step()  # type: ignore
+                batch_recon_loss.backward()
+                self.genotype_encoder_optimizer.step()
 
             elapsed_time = time.time() - epoch_start_time
             print(
-                f"Epoch: {epoch_idx} batch: {batch_idx} recon_loss: {genotypes_recon_loss[-1]} "
-                f"epoch duration: {elapsed_time}"
+                f"Epoch: {epoch_idx}, Batch: {batch_idx}, Training loss: {training_losses[-1]}, "
+                f"Epoch duration: {elapsed_time}"
             )
 
+        self.genotype_encoder_training_losses = training_losses
 
-def plot_reconstruction_losses():
-    # reconstruction loss for the phenotype autoencoder
-    plt.plot(rcon_loss)
-    # reconstruction loss for the genetic weights
-    plt.plot(genotypes_recon_loss)
-    plt.savefig(dataset_path + "reconstruction_loss.svg")
-    plt.close()
+    def plot_reconstruction_losses(self) -> None:
+        """
+        Plot all of the training losses.
+        """
+        plt.plot(self.phenotype_encoder_decoder_training_losses, label="Phenotype encoder-decoder")
+        plt.plot(self.genotype_encoder_training_losses, label="Genotype encoder")
+        plt.title("Training losses")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.legend()
+        plt.savefig(self.config.dataset_path + "reconstruction_loss.svg")
+        plt.close()
 
 
 def analyze_predictions(
@@ -785,6 +793,9 @@ def main():
     )
 
     model = GPAtlasModel(config=model_config)
+
+    if trainer_config.hot_start:
+        model.load_from_checkpoint(dirpath=trainer_config.hot_start_dirpath)
 
     trainer = GPAtlasTrainer(
         model=model, config=trainer_config, train_loader=train_loader, device=device
