@@ -4,16 +4,17 @@ import pickle
 import time
 from typing import Literal, cast
 
+import click
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy as sc
+import sklearn.metrics
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from captum.attr import FeatureAblation
 from numpy.typing import NDArray
 from pydantic import BaseModel
-from sklearn.metrics import mean_squared_error, r2_score
 from torch.utils.data.dataset import Dataset
 
 # define a minimum value for variables to avoid divide by zero and buffer underflow.
@@ -22,9 +23,15 @@ EPS = 1e-15
 LEAKY_RELU_SLOPE = 0.01
 
 
-def mean_absolute_percentage_error(y_true, y_pred):
-    y_true, y_pred = np.array(y_true + EPS), np.array(y_pred)
-    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+def mean_absolute_percentage_error(
+    y_true: NDArray[np.float32], y_pred: NDArray[np.float32]
+) -> float:
+    """
+    Calculate the Mean Absolute Percentage Error between true and predicted values.
+    """
+    y_true = np.array(y_true + EPS)
+    y_pred = np.array(y_pred)
+    return float(np.mean(np.abs((y_true - y_pred) / y_true)) * 100)
 
 
 class GPAtlasModelConfig(BaseModel):
@@ -64,12 +71,6 @@ class GPAtlasTrainerConfig(BaseModel):
     Configuration parameters for a G-P Atlas model trainer.
     """
 
-    # Directory in which to save training logs, checkpoints, and evaluation results.
-    output_dirpath: pathlib.Path
-
-    # Directory from which to hot-start the training process.
-    hot_start_dirpath: pathlib.Path | None = None
-
     seed: int = 47
 
     num_cores: int = 14  # this was `args.n_cpu`
@@ -97,11 +98,11 @@ class GPAtlasDataset(Dataset):
     'phenotypes': array of shape [n_animals, n_phens] (float values of the phenotypes)
     """
 
-    def __init__(self, filepath: str, num_phenotypes: int):
+    def __init__(self, filepath: str, num_phenotypes: int | None = None):
         """
         Initialize a GPAtlasDataset.
 
-        NOTE: `num_phenotypes` was set to `args.n_phens_to_analyze` in the original implementation.
+        Note: `num_phenotypes` was set to `args.n_phens_to_analyze` in the original implementation.
         """
         with open(filepath, "rb") as f:
             self.dataset = pickle.load(f)
@@ -113,8 +114,9 @@ class GPAtlasDataset(Dataset):
             raise ValueError("The number of phenotypes and genotypes must be the same.")
 
         # Crop the phenotypes to the specified number.
-        # TODO: is it best to do this by taking the first `num_phenotypes` phenotypes?
-        self.phenotypes = self.phenotypes[:, :num_phenotypes]
+        # TODO: should we randomize the order of the phenotypes here?
+        if num_phenotypes is not None:
+            self.phenotypes = self.phenotypes[:, :num_phenotypes]
 
     def __len__(self) -> int:
         return len(self.genotypes)
@@ -278,20 +280,19 @@ class GPAtlasTrainer:
         in the first stage to decode the genotype embeddings back to the phenotype space.
     """
 
-    def __init__(
-        self, model: GPAtlasModel, config: GPAtlasTrainerConfig, device: torch.device
-    ) -> None:
+    def __init__(self, model: GPAtlasModel, config: GPAtlasTrainerConfig) -> None:
         """
         Initialize a trainer for a G-P Atlas model.
         """
         self.model = model
         self.config = config
-        self.device = device
+
+        # TODO: consider specifying the device in `GPAtlasTrainerConfig`.
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
 
         self.phenotype_encoder_decoder_training_losses: list[float] = []
         self.genotype_encoder_training_losses: list[float] = []
-
-        torch.manual_seed(self.config.seed)
 
         self.phenotype_decoder_optimizer = torch.optim.Adam(
             model.phenotype_decoder.parameters(),
@@ -439,6 +440,9 @@ class GPAtlasTrainer:
         """
         Train the model.
         """
+        torch.manual_seed(self.config.seed)
+        self.model.to(self.device)
+
         # First train the phenotype encoder and decoder.
         self._train_phenotype_encoder_decoder(loader=loader)
 
@@ -448,7 +452,7 @@ class GPAtlasTrainer:
         # With the phenotype encoder and decoder frozen, train the genotype encoder.
         self._train_genotype_encoder(loader=loader)
 
-    def plot_training_losses(self) -> None:
+    def plot_training_losses(self, output_dirpath: pathlib.Path) -> None:
         """
         Plot all of the training losses.
         """
@@ -458,7 +462,7 @@ class GPAtlasTrainer:
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.legend()
-        plt.savefig(self.config.output_dirpath / "reconstruction_loss.svg")
+        plt.savefig(output_dirpath / "reconstruction_loss.svg")
         plt.close()
 
     def predict_phenotypes(
@@ -471,7 +475,7 @@ class GPAtlasTrainer:
         """
         self.model.to(self.device)
 
-        all_original_phenotypes = np.zeros(
+        all_true_phenotypes = np.zeros(
             (len(loader), self.model.config.num_input_phenotypes),
             dtype=np.float32,
         )
@@ -500,11 +504,11 @@ class GPAtlasTrainer:
 
                 decoded_phenotypes = self.model.phenotype_decoder(embeddings)
 
-            all_original_phenotypes[ind] = phenotypes.detach().cpu().numpy()
+            all_true_phenotypes[ind] = phenotypes.detach().cpu().numpy()
             all_decoded_phenotypes[ind] = decoded_phenotypes.detach().cpu().numpy()
             all_embeddings[ind] = embeddings.detach().cpu().numpy()
 
-        return (all_original_phenotypes, all_decoded_phenotypes, all_embeddings)
+        return (all_true_phenotypes, all_decoded_phenotypes, all_embeddings)
 
     def calculate_feature_importances(
         self,
@@ -552,140 +556,135 @@ class GPAtlasTrainer:
         return attributions
 
 
-def analyze_predictions(
-    original_phenotypes: NDArray[np.float32],
+def compare_true_and_predicted_phenotypes(
+    true_phenotypes: NDArray[np.float32],
     decoded_phenotypes: NDArray[np.float32],
-    embeddings: NDArray[np.float32],
-    feature_attributions: NDArray[np.float32],
-    dataset_path: str | pathlib.Path,
-    num_output_phenotypes: int,
-    encoder_type: Literal["genotype", "phenotype"] = "genotype",
+    output_dirpath: str | pathlib.Path,
+    suffix: str = "",
 ) -> None:
     """
-    Evaluate the performance of each model, saving summaries of model performance.
+    Generate plots and summary statistics comparing the true and decoded phenotypes.
 
     Parameters
     ----------
-    original_phenotypes : list
-        List of real phenotype values (numpy arrays) from model evaluation
-    decoded_phenotypes : list
-        List of predicted phenotype values (numpy arrays) from model evaluation
-    embeddings : list
-        List of latent space representations (numpy arrays) from model evaluation
-    feature_attributions : list
-        List of feature attribution values (numpy arrays) from captum analysis
-    dataset_path : str
-        Path to directory where all output files should be saved
-    num_output_phenotypes : int
-        Number of phenotypes to analyze and plot (uses first num_output_phenotypes phenotypes)
-    encoder_type : str, optional
-        Type of prediction being analyzed - either 'genotype' or 'phenotype'.
-        Affects file naming and data saving. Default is 'genotype'
+    true_phenotypes : array of true phenotypes of shape `(num_samples, num_phenotypes)`.
+    decoded_phenotypes : array of decoded phenotypes of shape `(num_samples, num_phenotypes)`.
+    output_dirpath : Path to directory where all output files should be saved
+    suffix : str, optional
+        Suffix to add to the output file names.
 
     Returns
     -------
     None
     """
-    dataset_path = pathlib.Path(dataset_path)
+    output_dirpath = pathlib.Path(output_dirpath)
 
-    # "PE" for "phenotype encoder" and "GE" for "genotype encoder".
-    suffix = "PE" if encoder_type == "phenotype" else "GE"
+    num_phenotypes = true_phenotypes.shape[1]
 
-    # Plot and save feature attributions.
-    plt.hist(feature_attributions, bins=20)
-    plt.savefig(dataset_path / f"{encoder_type}_feature_attributions.svg")
-    plt.close()
-    with open(dataset_path / f"{encoder_type}_feature_attributions.pk", "wb") as file:
-        pickle.dump(feature_attributions, file)
+    # Plot decoded phenotypes vs. true phenotypes.
+    for ind in range(num_phenotypes):
+        plt.plot(true_phenotypes[:, ind], decoded_phenotypes[:, ind], "o")
 
-    original_phenotypes = original_phenotypes.T
-    decoded_phenotypes = decoded_phenotypes.T
-    embeddings = embeddings.T
-
-    # Save the original, decoded, and encoded phenotypes.
-    with open(dataset_path / f"phens_phen_encodings_dng_attr{suffix}.pk", "wb") as file:
-        pickle.dump(
-            [original_phenotypes, decoded_phenotypes, embeddings],
-            file,
-        )
-
-    # Plot decoded phenotypes vs. original phenotypes.
-    for n in range(num_output_phenotypes):
-        plt.plot(original_phenotypes[n], decoded_phenotypes[n], "o")
-
-    plt.xlabel("real")
-    plt.ylabel("predicted")
+    plt.xlabel("True phenotype")
+    plt.ylabel("Predicted phenotype")
     plt.gca().set_aspect("equal")
-    plt.savefig(dataset_path / f"phen_real_pred_dng_attr{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_{suffix}.svg")
     plt.close()
 
     summary_stats: dict[str, list[float]] = {}
 
     # Pearson correlation.
     pearson_correlations = [
-        sc.stats.pearsonr(original_phenotypes[n], decoded_phenotypes[n])[0]
-        for n in range(num_output_phenotypes)
+        sc.stats.pearsonr(true_phenotypes[:, ind], decoded_phenotypes[:, ind])[0]
+        for ind in range(num_phenotypes)
     ]
     summary_stats["pearson_correlation"] = cast(list[float], pearson_correlations)
     plt.hist(pearson_correlations, bins=20)
-    plt.savefig(dataset_path / f"phen_real_pred_pearson_correlation_dng_attr{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_pearson_correlation_{suffix}.svg")
     plt.close()
 
     # Mean squared error.
-    mse_values = [
-        mean_squared_error(original_phenotypes[n], decoded_phenotypes[n])
-        for n in range(num_output_phenotypes)
-    ]
+    mse_values = sklearn.metrics.mean_squared_error(
+        true_phenotypes, decoded_phenotypes, multioutput="raw_values"
+    )
     summary_stats["mse"] = cast(list[float], mse_values)
     plt.hist(mse_values, bins=20)
-    plt.savefig(dataset_path / f"phen_real_pred_mse_dng_attr{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mse_{suffix}.svg")
     plt.close()
 
     # Mean absolute percentage error.
     mape_values = [
-        mean_absolute_percentage_error(original_phenotypes[n], decoded_phenotypes[n])
-        for n in range(num_output_phenotypes)
+        mean_absolute_percentage_error(true_phenotypes[:, ind], decoded_phenotypes[:, ind])
+        for ind in range(num_phenotypes)
     ]
     summary_stats["mape"] = cast(list[float], mape_values)
     plt.hist(mape_values, bins=20)
-    plt.savefig(dataset_path / f"phen_real_pred_mape_dng_attr{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mape_{suffix}.svg")
     plt.close()
 
     # R-squared
-    r2_values = [
-        r2_score(original_phenotypes[n], decoded_phenotypes[n])
-        for n in range(num_output_phenotypes)
-    ]
+    r2_values = sklearn.metrics.r2_score(
+        true_phenotypes, decoded_phenotypes, multioutput="raw_values"
+    )
     summary_stats["r2"] = cast(list[float], r2_values)
     plt.hist(r2_values, bins=20)
-    plt.savefig(dataset_path / f"phen_real_pred_r2_dng_attr{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_r2_{suffix}.svg")
     plt.close()
 
-    with open(dataset_path / f"test_stats{suffix}.json", "w") as file:
+    with open(output_dirpath / f"true_vs_pred_phenotypes_summary_stats_{suffix}.json", "w") as file:
         json.dump(summary_stats, file)
 
 
-def main():
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.option(
+    "--dataset-filepath",
+    type=click.Path(exists=True, path_type=pathlib.Path),
+    required=True,
+    help="Path to the directory containing the training and test dataset files.",
+)
+@click.option(
+    "--output-dirpath",
+    type=click.Path(path_type=pathlib.Path),
+    required=True,
+    help="Path to the directory where all output files should be saved.",
+)
+@click.option(
+    "--hot-start-checkpoint-dirpath",
+    type=click.Path(path_type=pathlib.Path),
+    required=False,
+    help="Optional path to the checkpoint directory from which to hot-start the training process.",
+)
+def train_cli(
+    dataset_filepath: pathlib.Path,
+    output_dirpath: pathlib.Path,
+    hot_start_checkpoint_dirpath: pathlib.Path | None,
+):
     """
-    Main function for training and evaluating the G-P Atlas model.
+    Main function for training a G-P Atlas model.
+
+    The output directory must exist and must contain
+    the `model_config.json` and `trainer_config.json` files.
     """
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    # Create the output directory structure.
+    output_dirpath.mkdir(parents=True, exist_ok=False)
+    for subdir in ["checkpoints", "plots"]:
+        (output_dirpath / subdir).mkdir(parents=True, exist_ok=False)
 
-    # TODO: load the model and trainer configs from a file.
-    model_config = GPAtlasModelConfig()
-    trainer_config = GPAtlasTrainerConfig()
+    with open(output_dirpath / "model_config.json") as file:
+        model_config = GPAtlasModelConfig(**json.load(file))
 
-    # TODO: add a CLI argument for the dataset filepath.
-    dataset_filepath = "/some/path/to/dataset/"
+    with open(output_dirpath / "trainer_config.json") as file:
+        trainer_config = GPAtlasTrainerConfig(**json.load(file))
 
     train_dataset = GPAtlasDataset(
-        filepath=(dataset_filepath + "train.pk"), num_phenotypes=model_config.num_input_phenotypes
-    )
-
-    test_dataset = GPAtlasDataset(
-        filepath=(dataset_filepath + "test.pk"), num_phenotypes=model_config.num_input_phenotypes
+        filepath=str(dataset_filepath / "train.pk"),
+        num_phenotypes=model_config.num_input_phenotypes,
     )
 
     train_loader = torch.utils.data.DataLoader(
@@ -693,6 +692,47 @@ def main():
         batch_size=trainer_config.batch_size,
         num_workers=trainer_config.num_cores,
         shuffle=True,
+    )
+
+    model = GPAtlasModel(config=model_config)
+
+    if hot_start_checkpoint_dirpath is not None:
+        model.load_from_checkpoint(dirpath=hot_start_checkpoint_dirpath)
+
+    trainer = GPAtlasTrainer(model=model, config=trainer_config)
+    trainer.train(loader=train_loader)
+    trainer.plot_training_losses(output_dirpath=output_dirpath)
+
+    model.save_to_checkpoint(dirpath=output_dirpath / "checkpoints" / "final_model_checkpoint.pt")
+
+
+@click.command()
+@click.option(
+    "--dataset-filepath",
+    type=click.Path(exists=True, path_type=pathlib.Path),
+    required=True,
+    help="Path to the directory containing the training and test dataset files.",
+)
+@click.option(
+    "--output-dirpath",
+    type=click.Path(path_type=pathlib.Path),
+    required=True,
+    help="Path to the directory where all output files should be saved.",
+)
+def eval_cli(dataset_filepath: pathlib.Path, output_dirpath: pathlib.Path):
+    """
+    Main function for evaluating a G-P Atlas model.
+    """
+
+    with open(output_dirpath / "model_config.json") as file:
+        model_config = GPAtlasModelConfig(**json.load(file))
+
+    with open(output_dirpath / "trainer_config.json") as file:
+        trainer_config = GPAtlasTrainerConfig(**json.load(file))
+
+    test_dataset = GPAtlasDataset(
+        filepath=str(dataset_filepath / "test.pk"),
+        num_phenotypes=model_config.num_input_phenotypes,
     )
 
     test_loader = torch.utils.data.DataLoader(
@@ -705,38 +745,39 @@ def main():
     )
 
     model = GPAtlasModel(config=model_config)
+    model.load_from_checkpoint(dirpath=output_dirpath / "checkpoints" / "final_model_checkpoint.pt")
 
-    if trainer_config.hot_start:
-        model.load_from_checkpoint(dirpath=trainer_config.hot_start_dirpath)
-
-    trainer = GPAtlasTrainer(model=model, config=trainer_config, device=device)
-
-    trainer.train(loader=train_loader)
-    trainer.plot_training_losses()
+    trainer = GPAtlasTrainer(model=model, config=trainer_config)
 
     encoder_types: list[Literal["genotype", "phenotype"]] = ["genotype", "phenotype"]
 
     for encoder_type in encoder_types:
-        (
-            all_original_phenotypes,
-            all_decoded_phenotypes,
-            all_encoded_genotypes,
-        ) = trainer.predict_phenotypes(loader=test_loader, encoder_type=encoder_type)
+        true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
+            loader=test_loader, encoder_type=encoder_type
+        )
 
         feature_attributions = trainer.calculate_feature_importances(
             loader=test_loader, encoder_type=encoder_type
         )
 
-        analyze_predictions(
-            original_phenotypes=np.array(all_original_phenotypes),
-            decoded_phenotypes=np.array(all_decoded_phenotypes),
-            embeddings=np.array(all_encoded_genotypes),
-            feature_attributions=feature_attributions,
-            dataset_path=trainer_config.output_dirpath,
-            num_output_phenotypes=model_config.num_output_phenotypes,
-            encoder_type=encoder_type,
+        for array, filename in zip(
+            [true_phenotypes, decoded_phenotypes, embeddings, feature_attributions],
+            [
+                "true_phenotypes.npy",
+                "decoded_phenotypes.npy",
+                "embeddings.npy",
+                "feature_attributions.npy",
+            ],
+        ):
+            np.save(output_dirpath / "predictions" / filename, array)
+
+        compare_true_and_predicted_phenotypes(
+            true_phenotypes=true_phenotypes,
+            decoded_phenotypes=decoded_phenotypes,
+            output_dirpath=(output_dirpath / "plots"),
+            suffix=("PE" if encoder_type == "phenotype" else "GE"),
         )
 
 
 if __name__ == "__main__":
-    main()
+    cli()
