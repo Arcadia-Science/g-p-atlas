@@ -224,26 +224,31 @@ class GPAtlasModel:
             batchnorm_momentum=config.batchnorm_momentum,
         )
 
-    def load_from_checkpoint(self, dirpath: str | pathlib.Path) -> None:
+    def load_from_checkpoint(self, checkpoint_filepath: str | pathlib.Path) -> None:
         """
-        Load weights from a prior run or checkpoint.
+        Load weights from a previous run or checkpoint.
         """
-        dirpath = pathlib.Path(dirpath)
-        for layer_name in ["phenotype_encoder", "phenotype_decoder", "genotype_encoder"]:
-            layer = getattr(self, layer_name)
-            layer.load_state_dict(
-                torch.load(dirpath / f"{layer_name}_state.pt", weights_only=True),
-                strict=False,
-            )
+        checkpoint = torch.load(checkpoint_filepath)
+        self.config = cast(GPAtlasModelConfig, checkpoint["model_config"])
+        self.phenotype_encoder.load_state_dict(checkpoint["model_state"]["phenotype_encoder"])
+        self.phenotype_decoder.load_state_dict(checkpoint["model_state"]["phenotype_decoder"])
+        self.genotype_encoder.load_state_dict(checkpoint["model_state"]["genotype_encoder"])
 
-    def save_to_checkpoint(self, dirpath: str | pathlib.Path) -> None:
+    def save_to_checkpoint(self, checkpoint_filepath: str | pathlib.Path) -> None:
         """
         Save the model to a checkpoint.
         """
-        dirpath = pathlib.Path(dirpath)
-        for layer_name in ["phenotype_encoder", "phenotype_decoder", "genotype_encoder"]:
-            layer = getattr(self, layer_name)
-            torch.save(layer.state_dict(), dirpath / f"{layer_name}_state.pt")
+        torch.save(
+            {
+                "model_config": self.config,
+                "model_state": {
+                    "phenotype_encoder": self.phenotype_encoder.state_dict(),
+                    "phenotype_decoder": self.phenotype_decoder.state_dict(),
+                    "genotype_encoder": self.genotype_encoder.state_dict(),
+                },
+            },
+            checkpoint_filepath,
+        )
 
     def to(self, device: torch.device) -> None:
         """
@@ -654,15 +659,15 @@ def cli():
     help="Path to the directory where all output files should be saved.",
 )
 @click.option(
-    "--hot-start-checkpoint-dirpath",
+    "--hot-start-checkpoint-filepath",
     type=click.Path(path_type=pathlib.Path),
     required=False,
-    help="Optional path to the checkpoint directory from which to hot-start the training process.",
+    help="Optional path to the checkpoint file from which to hot-start the training process.",
 )
-def train_cli(
+def train(
     dataset_filepath: pathlib.Path,
     output_dirpath: pathlib.Path,
-    hot_start_checkpoint_dirpath: pathlib.Path | None,
+    hot_start_checkpoint_filepath: pathlib.Path | None,
 ):
     """
     Main function for training a G-P Atlas model.
@@ -696,14 +701,17 @@ def train_cli(
 
     model = GPAtlasModel(config=model_config)
 
-    if hot_start_checkpoint_dirpath is not None:
-        model.load_from_checkpoint(dirpath=hot_start_checkpoint_dirpath)
+    if hot_start_checkpoint_filepath is not None:
+        model.load_from_checkpoint(hot_start_checkpoint_filepath)
 
     trainer = GPAtlasTrainer(model=model, config=trainer_config)
     trainer.train(loader=train_loader)
     trainer.plot_training_losses(output_dirpath=output_dirpath)
 
-    model.save_to_checkpoint(dirpath=output_dirpath / "checkpoints" / "final_model_checkpoint.pt")
+    # TODO: save checkpoints at regular intervals during training.
+    model.save_to_checkpoint(
+        checkpoint_filepath=output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
+    )
 
 
 @click.command()
@@ -719,9 +727,10 @@ def train_cli(
     required=True,
     help="Path to the directory where all output files should be saved.",
 )
-def eval_cli(dataset_filepath: pathlib.Path, output_dirpath: pathlib.Path):
+def evaluate(dataset_filepath: pathlib.Path, output_dirpath: pathlib.Path):
     """
-    Main function for evaluating a G-P Atlas model.
+    Main function for evaluating a trained G-P Atlas model, using the final model checkpoint
+    saved during training.
     """
 
     with open(output_dirpath / "model_config.json") as file:
@@ -729,6 +738,13 @@ def eval_cli(dataset_filepath: pathlib.Path, output_dirpath: pathlib.Path):
 
     with open(output_dirpath / "trainer_config.json") as file:
         trainer_config = GPAtlasTrainerConfig(**json.load(file))
+
+    model = GPAtlasModel(config=model_config)
+    model.load_from_checkpoint(
+        checkpoint_filepath=output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
+    )
+
+    trainer = GPAtlasTrainer(model=model, config=trainer_config)
 
     test_dataset = GPAtlasDataset(
         filepath=str(dataset_filepath / "test.pk"),
@@ -743,11 +759,6 @@ def eval_cli(dataset_filepath: pathlib.Path, output_dirpath: pathlib.Path):
         # is preserved across evaluation loops.
         shuffle=False,
     )
-
-    model = GPAtlasModel(config=model_config)
-    model.load_from_checkpoint(dirpath=output_dirpath / "checkpoints" / "final_model_checkpoint.pt")
-
-    trainer = GPAtlasTrainer(model=model, config=trainer_config)
 
     encoder_types: list[Literal["genotype", "phenotype"]] = ["genotype", "phenotype"]
 
