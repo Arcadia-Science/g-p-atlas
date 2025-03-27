@@ -30,6 +30,10 @@ def mean_absolute_percentage_error(y_true, y_pred):
 class GPAtlasModelConfig(BaseModel):
     """
     Configuration parameters for a G-P Atlas model.
+
+    This configuration attempts to support some plausible model variants by
+    - allowing for separate encoders and decoders for both genotypes and phenotypes.
+    - providing a way to define models with or without hidden layers in the encoder and decoder.
     """
 
     n_loci_measured: int = 3000
@@ -39,7 +43,8 @@ class GPAtlasModelConfig(BaseModel):
     num_output_phenotypes: int = 30  # This was `args.n_phens_to_predict`
 
     # The dimensions of the hidden layers in the encoder and decoder.
-    # If set to `None`, no hidden layers are used in the corresponding encoder or decoder.
+    # If set to `None`, the model will not have any hidden layers
+    # in the corresponding encoder or decoder.
     phenotype_encoder_hidden_dim: int | None = 32
     phenotype_decoder_hidden_dim: int | None = 32
     genotype_encoder_hidden_dim: int | None = 32
@@ -87,7 +92,7 @@ class GPAtlasDataset(Dataset):
     """
     A class for importing simulated genotype and phenotype data.
 
-    It expects a pickled object that is organized as a dictionary of tensors:
+    It expects a pickled object that is organized as a dictionary of arrays:
     'genotypes': array of shape [n_animals, n_loci, n_alleles] (one hot at allelic state)
     'phenotypes': array of shape [n_animals, n_phens] (float values of the phenotypes)
     """
@@ -189,10 +194,13 @@ class Decoder(nn.Module):
 
 
 class GPAtlasModel:
+    """
+    The model architecture used for the initial G-P Atlas publication.
+    This model consists of a phenotype encoder-decoder and a genotype encoder,
+    with no genotype decoder.
+    """
+
     def __init__(self, config: GPAtlasModelConfig) -> None:
-        """
-        Initialize a G-P Atlas model.
-        """
         self.config = config
 
         self.phenotype_encoder = Encoder(
@@ -333,7 +341,7 @@ class GPAtlasTrainer:
 
                 # Calculate the reconstruction loss.
                 # TODO: `num_output_phenotypes` will only have an effect here
-                # if it is less than `n_phens`.
+                # if it is less than `num_input_phenotypes`.
                 loss = F.mse_loss(
                     decoded_phenotypes + EPS,
                     phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
@@ -455,7 +463,52 @@ class GPAtlasTrainer:
         plt.savefig(self.config.output_dirpath / "reconstruction_loss.svg")
         plt.close()
 
-    def calculate_feature_importance(
+    def predict_phenotypes(
+        self,
+        loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
+        encoder_type: Literal["genotype", "phenotype"],
+    ) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
+        """
+        Predict phenotypes using either genotypes or phenotypes as input.
+        """
+        self.model.to(self.device)
+
+        all_original_phenotypes = np.zeros(
+            (len(loader), self.model.config.num_input_phenotypes),
+            dtype=np.float32,
+        )
+        all_decoded_phenotypes = np.zeros(
+            (len(loader), self.model.config.num_output_phenotypes),
+            dtype=np.float32,
+        )
+        all_embeddings = np.zeros(
+            (len(loader), self.model.config.latent_dim),
+            dtype=np.float32,
+        )
+
+        for ind, (genotypes, phenotypes) in enumerate(loader):
+            genotypes = genotypes[
+                :, : self.model.config.n_loci_measured * self.model.config.n_alleles
+            ]
+            genotypes = genotypes.to(self.device)
+            phenotypes = phenotypes.to(self.device)
+
+            with torch.no_grad():
+                embeddings: torch.Tensor
+                if encoder_type == "genotype":
+                    embeddings = self.model.genotype_encoder(genotypes)
+                elif encoder_type == "phenotype":
+                    embeddings = self.model.phenotype_encoder(phenotypes)
+
+                decoded_phenotypes = self.model.phenotype_decoder(embeddings)
+
+            all_original_phenotypes[ind] = phenotypes.detach().cpu().numpy()
+            all_decoded_phenotypes[ind] = decoded_phenotypes.detach().cpu().numpy()
+            all_embeddings[ind] = embeddings.detach().cpu().numpy()
+
+        return (all_original_phenotypes, all_decoded_phenotypes, all_embeddings)
+
+    def calculate_feature_importances(
         self,
         loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
         encoder_type: Literal["genotype", "phenotype"],
@@ -487,55 +540,18 @@ class GPAtlasTrainer:
 
         ablator = FeatureAblation(forward_func)
 
-        attributions: list[list[float]] = []
-        for genotypes, phenotypes in loader:
+        attributions = np.zeros(
+            (len(loader), self.model.config.num_output_phenotypes),
+            dtype=np.float32,
+        )
+        for ind, (genotypes, phenotypes) in enumerate(loader):
             genotypes = genotypes.to(self.device)
             phenotypes = phenotypes.to(self.device)
             with torch.no_grad():
                 attribution = ablator.attribute(inputs=(genotypes, phenotypes))
-            attributions.append(list(attribution[0].squeeze().detach().cpu().numpy()))
+            attributions[ind] = attribution[0].squeeze().detach().cpu().numpy()
 
-        return np.array(attributions)
-
-    def predict_phenotypes(
-        self,
-        loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
-        encoder_type: Literal["genotype", "phenotype"],
-    ) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float32]]:
-        """
-        Predict phenotypes using either genotypes or phenotypes as input.
-        """
-        self.model.to(self.device)
-
-        all_original_phenotypes: list[NDArray[np.float32]] = []
-        all_decoded_phenotypes: list[NDArray[np.float32]] = []
-        all_embeddings: list[NDArray[np.float32]] = []
-
-        for genotypes, phenotypes in loader:
-            genotypes = genotypes[
-                :, : self.model.config.n_loci_measured * self.model.config.n_alleles
-            ]
-            genotypes = genotypes.to(self.device)
-            phenotypes = phenotypes.to(self.device)
-
-            with torch.no_grad():
-                embeddings: torch.Tensor
-                if encoder_type == "genotype":
-                    embeddings = self.model.genotype_encoder(genotypes)
-                elif encoder_type == "phenotype":
-                    embeddings = self.model.phenotype_encoder(phenotypes)
-
-                decoded_phenotypes = self.model.phenotype_decoder(embeddings)
-
-            all_original_phenotypes += list(phenotypes.detach().cpu().numpy())
-            all_decoded_phenotypes += list(decoded_phenotypes.detach().cpu().numpy())
-            all_embeddings += list(embeddings.detach().cpu().numpy())
-
-        return (
-            np.array(all_original_phenotypes),
-            np.array(all_decoded_phenotypes),
-            np.array(all_embeddings),
-        )
+        return attributions
 
 
 def analyze_predictions(
@@ -711,7 +727,7 @@ def main():
         ) = trainer.predict_phenotypes(loader=test_loader, encoder_type=encoder_type)
 
         # Calculate the importance of each input feature for predicting all of the phenotypes.
-        feature_attributions = trainer.calculate_feature_importance(
+        feature_attributions = trainer.calculate_feature_importances(
             loader=test_loader, encoder_type=encoder_type
         )
 
