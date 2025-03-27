@@ -13,12 +13,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+import click
 import numpy as np
+import yaml
 from numpy.typing import NDArray
+from pydantic import BaseModel
 
 
-@dataclass
-class SimulationParameters:
+class SimulationParameters(BaseModel):
     """Parameters defining a genotype-phenotype simulation."""
 
     seed: int = 42
@@ -89,14 +91,15 @@ class SimulationData:
     # A dict of dicts of environmental effects for each phenotype and environmental factor.
     env_effects: dict[int, dict[int, float]] = field(default_factory=dict)
 
-    def save(self, filepath: str | Path) -> None:
-        """Save the simulation data to a file."""
-        raise NotImplementedError("Saving is not implemented yet.")
+    def save(self, dirpath: str | Path) -> None:
+        """
+        Save the simulation data to a directory.
 
-    @classmethod
-    def load(cls, filepath: str | Path) -> SimulationData:
-        """Load simulation data from a file."""
-        raise NotImplementedError("Loading is not implemented yet.")
+        TODO: save the allele frequencies, causal loci, effect sizes, pleiotropic effects,
+        epistatic effects, and environmental effects.
+        """
+        np.save(dirpath / "genotypes.npy", self.genotypes)
+        np.save(dirpath / "phenotypes.npy", self.phenotypes)
 
 
 class GenotypePhenotypeSimulator:
@@ -193,15 +196,15 @@ class GenotypePhenotypeSimulator:
         causal_loci = {}
         effect_sizes = {}
 
-        all_loci = set(np.arange(params.num_loci))
+        unselected_loci = set(np.arange(params.num_loci))
         for phenotype_ind in range(params.num_phenotypes):
             # Select causal loci without replacement.
             phenotype_causal_loci = np.random.choice(
-                list(all_loci), size=params.num_causal_loci_per_phenotype, replace=False
+                list(unselected_loci), size=params.num_causal_loci_per_phenotype, replace=False
             )
 
             # Remove the selected loci from the pool of all loci.
-            all_loci -= set(phenotype_causal_loci)
+            unselected_loci -= set(phenotype_causal_loci)
 
             causal_loci[phenotype_ind] = list(phenotype_causal_loci)
 
@@ -354,65 +357,33 @@ class GenotypePhenotypeSimulator:
         return phenotypes
 
 
-def run_simulation_sweep(
-    output_dir: str | Path,
-    pleiotropy_values: list[float],
-    epistasis_values: list[float],
-    base_params: SimulationParameters | None = None,
-) -> None:
+@click.command()
+@click.option("--output-dirpath", type=click.Path(path_type=Path), required=True)
+@click.option("--config-filepath", type=click.Path(exists=True, path_type=Path), required=True)
+def run_simulation(output_dirpath: Path, config_filepath: Path):
     """
-    Run a parameter sweep over pleiotropy and epistasis values.
-
-    Args:
-        output_dir: Directory to save simulation results
-        pleiotropy_values: list of pleiotropy probabilities to test
-        epistasis_values: list of epistasis probabilities to test
-        base_params: Base parameters to use for all simulations
+    Run a simulation and save the results to a file.
     """
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    if output_dirpath.exists():
+        click.confirm(
+            f"Output directory {output_dirpath} already exists. Do you want to overwrite it?",
+            abort=True,
+        )
 
-    if base_params is None:
-        base_params = SimulationParameters()
+    output_dirpath.mkdir(parents=True, exist_ok=True)
 
-    for pleio_prob in pleiotropy_values:
-        for epist_prob in epistasis_values:
-            params = SimulationParameters(
-                **{
-                    **base_params.__dict__,
-                    "pleiotropy_probability": pleio_prob,
-                    "epistasis_probability": epist_prob,
-                }
-            )
-
-            simulator = GenotypePhenotypeSimulator(params)
-            _ = simulator.simulate()
-            # TODO: save the data here.
-
-            print(f"Completed simulation with pleiotropy={pleio_prob}, epistasis={epist_prob}")
-
-
-if __name__ == "__main__":
-    # Example usage.
-    params = SimulationParameters(
-        num_samples=1000,
-        num_loci=3000,
-        num_phenotypes=30,
-        num_causal_loci_per_phenotype=10,
-        pleiotropy_probability=0.2,
-        epistasis_probability=0.2,
-        heritability=0.6,
-        num_environmental_factors=2,
-        env_influence_probability=0.2,
-        env_effect_size_range=(0.0, 1.0),
-        seed=42,
-    )
+    with open(config_filepath) as file:
+        params = SimulationParameters(**yaml.safe_load(file))
 
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
+    data.save(output_dirpath)
 
-    assert data.genotypes is not None
-    assert data.phenotypes is not None
+    with open(output_dirpath / "params.yaml", "w") as file:
+        yaml.dump(params.model_dump(), file)
 
-    print(f"data.genotypes.shape: {data.genotypes.shape}")
-    print(f"data.phenotypes.shape: {data.phenotypes.shape}")
+    click.echo(f"Simulation results saved to {output_dirpath}")
+
+
+if __name__ == "__main__":
+    run_simulation()
