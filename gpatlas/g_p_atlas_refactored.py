@@ -178,8 +178,6 @@ class Decoder(nn.Module):
         if hidden_dim is None:
             self.layers = nn.Sequential(
                 nn.Linear(in_features=latent_dim, out_features=output_dim),
-                nn.BatchNorm1d(output_dim, momentum=batchnorm_momentum),
-                nn.LeakyReLU(LEAKY_RELU_SLOPE),
             )
         else:
             self.layers = nn.Sequential(
@@ -719,14 +717,12 @@ def main():
     encoder_types: list[Literal["genotype", "phenotype"]] = ["genotype", "phenotype"]
 
     for encoder_type in encoder_types:
-        # Predict phenotypes.
         (
             all_original_phenotypes,
             all_decoded_phenotypes,
             all_encoded_genotypes,
         ) = trainer.predict_phenotypes(loader=test_loader, encoder_type=encoder_type)
 
-        # Calculate the importance of each input feature for predicting all of the phenotypes.
         feature_attributions = trainer.calculate_feature_importances(
             loader=test_loader, encoder_type=encoder_type
         )
