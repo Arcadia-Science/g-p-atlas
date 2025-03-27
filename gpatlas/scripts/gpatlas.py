@@ -1,10 +1,10 @@
-import json
 import pathlib
 from typing import Literal
 
 import click
 import numpy as np
 import torch
+import yaml
 
 from gpatlas.datasets import GPAtlasDataset
 from gpatlas.models import GPAtlasModel, GPAtlasModelConfig
@@ -19,48 +19,48 @@ def cli():
 
 @cli.command()
 @click.option(
-    "--dataset-filepath",
+    "--dataset-dirpath",
     type=click.Path(exists=True, path_type=pathlib.Path),
     required=True,
     help="Path to the directory containing the training and test dataset files.",
 )
 @click.option(
     "--output-dirpath",
-    type=click.Path(path_type=pathlib.Path),
+    type=click.Path(exists=True, path_type=pathlib.Path),
     required=True,
     help="Path to the directory where all output files should be saved.",
 )
 @click.option(
     "--hot-start-checkpoint-filepath",
-    type=click.Path(path_type=pathlib.Path),
+    type=click.Path(exists=True, path_type=pathlib.Path),
     required=False,
     help="Optional path to the checkpoint file from which to hot-start the training process.",
 )
 def train(
-    dataset_filepath: pathlib.Path,
+    dataset_dirpath: pathlib.Path,
     output_dirpath: pathlib.Path,
     hot_start_checkpoint_filepath: pathlib.Path | None,
 ):
     """
-    Main function for training a G-P Atlas model.
+    Train a G-P Atlas model.
 
-    The output directory must exist and must contain
-    the `model_config.json` and `trainer_config.json` files.
+    Note: the output directory must exist and must contain valid configuration files
+    (`model_config.yaml` and `trainer_config.yaml`) that define the model and trainer
+    configurations, respectively.
     """
 
     # Create the output directory structure.
-    output_dirpath.mkdir(parents=True, exist_ok=False)
-    for subdir in ["checkpoints", "plots"]:
-        (output_dirpath / subdir).mkdir(parents=True, exist_ok=False)
+    for subdir in ["checkpoints", "plots", "predictions"]:
+        (output_dirpath / subdir).mkdir(parents=True, exist_ok=True)
 
-    with open(output_dirpath / "model_config.json") as file:
-        model_config = GPAtlasModelConfig(**json.load(file))
+    with open(output_dirpath / "model_config.yaml") as file:
+        model_config = GPAtlasModelConfig(**yaml.safe_load(file))
 
-    with open(output_dirpath / "trainer_config.json") as file:
-        trainer_config = GPAtlasTrainerConfig(**json.load(file))
+    with open(output_dirpath / "trainer_config.yaml") as file:
+        trainer_config = GPAtlasTrainerConfig(**yaml.safe_load(file))
 
     train_dataset = GPAtlasDataset(
-        filepath=str(dataset_filepath / "train.pk"),
+        filepath=str(dataset_dirpath / "train.pk"),
         num_phenotypes=model_config.num_input_phenotypes,
     )
 
@@ -86,9 +86,9 @@ def train(
     )
 
 
-@click.command()
+@cli.command()
 @click.option(
-    "--dataset-filepath",
+    "--dataset-dirpath",
     type=click.Path(exists=True, path_type=pathlib.Path),
     required=True,
     help="Path to the directory containing the training and test dataset files.",
@@ -99,17 +99,18 @@ def train(
     required=True,
     help="Path to the directory where all output files should be saved.",
 )
-def evaluate(dataset_filepath: pathlib.Path, output_dirpath: pathlib.Path):
+def evaluate(dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path):
     """
-    Main function for evaluating a trained G-P Atlas model, using the final model checkpoint
-    saved during training.
+    Evaluate a trained G-P Atlas model.
+
+    Note: the evaluation uses the final model checkpoint saved during training.
     """
 
-    with open(output_dirpath / "model_config.json") as file:
-        model_config = GPAtlasModelConfig(**json.load(file))
+    with open(output_dirpath / "model_config.yaml") as file:
+        model_config = GPAtlasModelConfig(**yaml.safe_load(file))
 
-    with open(output_dirpath / "trainer_config.json") as file:
-        trainer_config = GPAtlasTrainerConfig(**json.load(file))
+    with open(output_dirpath / "trainer_config.yaml") as file:
+        trainer_config = GPAtlasTrainerConfig(**yaml.safe_load(file))
 
     model = GPAtlasModel(config=model_config)
     model.load_from_checkpoint(
@@ -119,7 +120,7 @@ def evaluate(dataset_filepath: pathlib.Path, output_dirpath: pathlib.Path):
     trainer = GPAtlasTrainer(model=model, config=trainer_config)
 
     test_dataset = GPAtlasDataset(
-        filepath=str(dataset_filepath / "test.pk"),
+        filepath=str(dataset_dirpath / "test.pk"),
         num_phenotypes=model_config.num_input_phenotypes,
     )
 
@@ -134,7 +135,11 @@ def evaluate(dataset_filepath: pathlib.Path, output_dirpath: pathlib.Path):
 
     encoder_types: list[Literal["genotype", "phenotype"]] = ["genotype", "phenotype"]
 
-    for encoder_type in encoder_types:
+    # The suffixes 'ge' and 'pe' are used to distinguish between results
+    # from the genotype and phenotype encoders, respectively.
+    filename_suffixes = ["ge", "pe"]
+
+    for encoder_type, filename_suffix in zip(encoder_types, filename_suffixes):
         true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
             loader=test_loader, encoder_type=encoder_type
         )
@@ -143,22 +148,19 @@ def evaluate(dataset_filepath: pathlib.Path, output_dirpath: pathlib.Path):
             loader=test_loader, encoder_type=encoder_type
         )
 
-        for array, filename in zip(
+        # Save the arrays of predicted and true phenotypes, embeddings, and feature attributions.
+        for array, name in zip(
             [true_phenotypes, decoded_phenotypes, embeddings, feature_attributions],
-            [
-                "true_phenotypes.npy",
-                "decoded_phenotypes.npy",
-                "embeddings.npy",
-                "feature_attributions.npy",
-            ],
+            ["true_phenotypes", "decoded_phenotypes", "embeddings", "feature_attributions"],
         ):
-            np.save(output_dirpath / "predictions" / filename, array)
+            np.save(output_dirpath / "predictions" / f"{name}_{filename_suffix}.npy", array)
 
+        # Generate and save plots of the predicted vs true phenotypes.
         compare_true_and_predicted_phenotypes(
             true_phenotypes=true_phenotypes,
             decoded_phenotypes=decoded_phenotypes,
             output_dirpath=(output_dirpath / "plots"),
-            suffix=("PE" if encoder_type == "phenotype" else "GE"),
+            suffix=filename_suffix,
         )
 
 
