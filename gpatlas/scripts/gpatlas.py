@@ -12,6 +12,45 @@ from gpatlas.trainers import GPAtlasTrainer, GPAtlasTrainerConfig
 from gpatlas.utils import compare_true_and_predicted_phenotypes
 
 
+def load_configs(output_dirpath: pathlib.Path) -> tuple[GPAtlasModelConfig, GPAtlasTrainerConfig]:
+    """
+    Load the model and trainer configuration files from the output directory.
+    """
+    model_config_filepath = output_dirpath / "model-config.yaml"
+    trainer_config_filepath = output_dirpath / "trainer-config.yaml"
+
+    if not model_config_filepath.exists():
+        raise FileNotFoundError(f"Model configuration file not found at {model_config_filepath}")
+
+    if not trainer_config_filepath.exists():
+        raise FileNotFoundError(
+            f"Trainer configuration file not found at {trainer_config_filepath}"
+        )
+
+    with open(model_config_filepath) as file:
+        model_config = GPAtlasModelConfig(**(yaml.safe_load(file) or {}))
+
+    with open(trainer_config_filepath) as file:
+        trainer_config = GPAtlasTrainerConfig(**(yaml.safe_load(file) or {}))
+
+    return model_config, trainer_config
+
+
+def dump_configs(
+    model_config: GPAtlasModelConfig,
+    trainer_config: GPAtlasTrainerConfig,
+    output_dirpath: pathlib.Path,
+) -> None:
+    """
+    Dump the model and trainer configuration files to the output directory.
+    """
+    with open(output_dirpath / "model-config.yaml", "w") as file:
+        yaml.dump(model_config.model_dump(), file)
+
+    with open(output_dirpath / "trainer-config.yaml", "w") as file:
+        yaml.dump(trainer_config.model_dump(), file)
+
+
 @click.group()
 def cli():
     pass
@@ -50,17 +89,16 @@ def train(
     """
 
     # Create the output directory structure.
-    for subdir in ["checkpoints", "plots", "predictions"]:
+    for subdir in ["checkpoints", "plots", "predictions", "logs"]:
         (output_dirpath / subdir).mkdir(parents=True, exist_ok=True)
 
-    with open(output_dirpath / "model_config.yaml") as file:
-        model_config = GPAtlasModelConfig(**yaml.safe_load(file))
+    model_config, trainer_config = load_configs(output_dirpath)
 
-    with open(output_dirpath / "trainer_config.yaml") as file:
-        trainer_config = GPAtlasTrainerConfig(**yaml.safe_load(file))
+    # Save the configs to capture the actual values.
+    dump_configs(model_config, trainer_config, output_dirpath / "logs")
 
     train_dataset = GPAtlasDataset(
-        filepath=str(dataset_dirpath / "train.pk"),
+        filepath=str(dataset_dirpath / "train-data.h5"),
         num_phenotypes=model_config.num_input_phenotypes,
     )
 
@@ -105,12 +143,7 @@ def evaluate(dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path):
 
     Note: the evaluation uses the final model checkpoint saved during training.
     """
-
-    with open(output_dirpath / "model_config.yaml") as file:
-        model_config = GPAtlasModelConfig(**yaml.safe_load(file))
-
-    with open(output_dirpath / "trainer_config.yaml") as file:
-        trainer_config = GPAtlasTrainerConfig(**yaml.safe_load(file))
+    model_config, trainer_config = load_configs(output_dirpath)
 
     model = GPAtlasModel(config=model_config)
     model.load_from_checkpoint(
@@ -120,7 +153,7 @@ def evaluate(dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path):
     trainer = GPAtlasTrainer(model=model, config=trainer_config)
 
     test_dataset = GPAtlasDataset(
-        filepath=str(dataset_dirpath / "test.pk"),
+        filepath=str(dataset_dirpath / "test-data.h5"),
         num_phenotypes=model_config.num_input_phenotypes,
     )
 
