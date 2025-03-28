@@ -61,10 +61,10 @@ def compare_true_and_predicted_phenotypes(
 
     # Pearson correlation.
     pearson_correlations = [
-        scipy.stats.pearsonr(true_phenotypes[:, ind], decoded_phenotypes[:, ind])[0]
+        float(scipy.stats.pearsonr(true_phenotypes[:, ind], decoded_phenotypes[:, ind])[0])
         for ind in range(num_phenotypes)
     ]
-    summary_stats["pearson_correlation"] = cast(list[float], pearson_correlations)
+    summary_stats["pearson_correlation"] = pearson_correlations
     plt.hist(pearson_correlations, bins=20)
     plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_pearson_correlation_{suffix}.svg")
     plt.close()
@@ -73,7 +73,7 @@ def compare_true_and_predicted_phenotypes(
     mse_values = sklearn.metrics.mean_squared_error(
         true_phenotypes, decoded_phenotypes, multioutput="raw_values"
     )
-    summary_stats["mse"] = cast(list[float], mse_values)
+    summary_stats["mse"] = mse_values.astype(float).tolist()
     plt.hist(mse_values, bins=20)
     plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mse_{suffix}.svg")
     plt.close()
@@ -83,7 +83,7 @@ def compare_true_and_predicted_phenotypes(
         mean_absolute_percentage_error(true_phenotypes[:, ind], decoded_phenotypes[:, ind])
         for ind in range(num_phenotypes)
     ]
-    summary_stats["mape"] = cast(list[float], mape_values)
+    summary_stats["mape"] = mape_values
     plt.hist(mape_values, bins=20)
     plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mape_{suffix}.svg")
     plt.close()
@@ -92,7 +92,7 @@ def compare_true_and_predicted_phenotypes(
     r2_values = sklearn.metrics.r2_score(
         true_phenotypes, decoded_phenotypes, multioutput="raw_values"
     )
-    summary_stats["r2"] = cast(list[float], r2_values)
+    summary_stats["r2"] = r2_values.astype(float).tolist()
     plt.hist(r2_values, bins=20)
     plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_r2_{suffix}.svg")
     plt.close()

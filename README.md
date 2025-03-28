@@ -70,7 +70,7 @@ make pre-commit
 
 ### Testing
 
-We use `pytest` for testing. The tests are found in the `g_p_atlas/tests/` subpackage. To run the tests, use the following command:
+We use `pytest` for testing. The tests are found in the `gpatlas/tests/` subpackage. To run the tests, use the following command:
 
 ```bash
 make test

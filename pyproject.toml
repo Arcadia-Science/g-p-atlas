@@ -21,7 +21,7 @@ description = "A Python package for training and evaluating nonlinear genotype-p
 authors = ["Arcadia Science <info@arcadiascience.com>"]
 readme = "README.md"
 license = "MIT"
-packages = [{ include = "g_p_atlas" }]
+packages = [{ include = "gpatlas" }]
 homepage = "https://github.com/Arcadia-Science/g-p-atlas"
 repository = "https://github.com/Arcadia-Science/g-p-atlas"
 documentation = "https://github.com/Arcadia-Science/g-p-atlas/blob/main/README.md"

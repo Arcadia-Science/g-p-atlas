@@ -58,6 +58,8 @@ class GPAtlasTrainer:
         self.model = model
         self.config = config
 
+        torch.manual_seed(self.config.seed)
+
         # TODO: consider specifying the device to use in the trainer config.
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
@@ -91,13 +93,12 @@ class GPAtlasTrainer:
         Train the phenotype encoder and decoder.
         """
 
-        self.model.to(self.device)
         training_losses: list[float] = []
 
         for epoch_idx in range(self.config.num_epochs):
             epoch_start_time = time.time()
 
-            for _, phenotypes in enumerate(loader):
+            for _, phenotypes in loader:
                 phenotypes = phenotypes.to(self.device)
 
                 # Initialize gradients for training.
@@ -140,10 +141,8 @@ class GPAtlasTrainer:
         self, loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]]
     ) -> None:
         """
-        Train the genotype encoder.
-        This assumes that the phenotype encoder and decoder are pre-trained and frozen.
+        Train the genotype encoder, using the phenotype decoder trained in the first stage.
         """
-        self.model.to(self.device)
         training_losses: list[float] = []
 
         for epoch_idx in range(self.config.num_epochs):
@@ -214,16 +213,16 @@ class GPAtlasTrainer:
         """
         Train the model.
         """
-        torch.manual_seed(self.config.seed)
         self.model.to(self.device)
+        self.model.train()
 
-        # First train the phenotype encoder and decoder.
+        # First train the phenotype encoder-decoder.
         self._train_phenotype_encoder_decoder(loader=loader)
 
-        # Freeze the phenotype encoder and decoder before training the genotype encoder.
+        # Freeze the phenotype encoder-decoder before training the genotype encoder.
         self.model.freeze_phenotype_encoder_decoder()
 
-        # With the phenotype encoder and decoder frozen, train the genotype encoder.
+        # With the phenotype encoder-decoder frozen, train the genotype encoder.
         self._train_genotype_encoder(loader=loader)
 
     def plot_training_losses(self, output_dirpath: pathlib.Path) -> None:
@@ -248,6 +247,7 @@ class GPAtlasTrainer:
         Predict phenotypes using either genotypes or phenotypes as input.
         """
         self.model.to(self.device)
+        self.model.eval()
 
         all_true_phenotypes = np.zeros(
             (len(loader), self.model.config.num_input_phenotypes),
@@ -294,6 +294,7 @@ class GPAtlasTrainer:
         for predicting all of the phenotypes.
         """
         self.model.to(self.device)
+        self.model.eval()
 
         if encoder_type not in ["genotype", "phenotype"]:
             raise ValueError(f"Invalid kind: {encoder_type}")

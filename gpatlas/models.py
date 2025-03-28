@@ -1,5 +1,4 @@
 import pathlib
-from typing import cast
 
 import torch
 from pydantic import BaseModel
@@ -39,7 +38,7 @@ class GPAtlasModelConfig(BaseModel):
     batchnorm_momentum: float = 0.8
 
 
-class GPAtlasModel:
+class GPAtlasModel(torch.nn.Module):
     """
     The model architecture used for the initial G-P Atlas publication.
     This model consists of a phenotype encoder-decoder and a genotype encoder,
@@ -47,6 +46,8 @@ class GPAtlasModel:
     """
 
     def __init__(self, config: GPAtlasModelConfig) -> None:
+        super().__init__()
+
         self.config = config
 
         self.phenotype_encoder = Encoder(
@@ -75,34 +76,13 @@ class GPAtlasModel:
         Load weights from a previous run or checkpoint.
         """
         checkpoint = torch.load(checkpoint_filepath)
-        self.config = cast(GPAtlasModelConfig, checkpoint["model_config"])
-        self.phenotype_encoder.load_state_dict(checkpoint["model_state"]["phenotype_encoder"])
-        self.phenotype_decoder.load_state_dict(checkpoint["model_state"]["phenotype_decoder"])
-        self.genotype_encoder.load_state_dict(checkpoint["model_state"]["genotype_encoder"])
+        self.load_state_dict(checkpoint["model_state"])
 
     def save_to_checkpoint(self, checkpoint_filepath: str | pathlib.Path) -> None:
         """
         Save the model to a checkpoint.
         """
-        torch.save(
-            {
-                "model_config": self.config,
-                "model_state": {
-                    "phenotype_encoder": self.phenotype_encoder.state_dict(),
-                    "phenotype_decoder": self.phenotype_decoder.state_dict(),
-                    "genotype_encoder": self.genotype_encoder.state_dict(),
-                },
-            },
-            checkpoint_filepath,
-        )
-
-    def to(self, device: torch.device) -> None:
-        """
-        Move the model to a specific device.
-        """
-        self.phenotype_encoder.to(device)
-        self.phenotype_decoder.to(device)
-        self.genotype_encoder.to(device)
+        torch.save({"model_state": self.state_dict()}, checkpoint_filepath)
 
     def freeze_phenotype_encoder_decoder(self) -> None:
         """
@@ -120,3 +100,21 @@ class GPAtlasModel:
         """
         self.genotype_encoder.requires_grad_(False)
         self.genotype_encoder.eval()
+
+    def autoencode_phenotypes(self, phenotypes: torch.Tensor) -> torch.Tensor:
+        """
+        Autoencode phenotypes:
+        Phenotypes -> Latent space -> Decoded phenotypes.
+        """
+        embeddings = self.phenotype_encoder(phenotypes)
+        decoded_phenotypes = self.phenotype_decoder(embeddings)
+        return decoded_phenotypes
+
+    def forward(self, genotypes: torch.Tensor) -> torch.Tensor:
+        """
+        Canonical forward pass of the model:
+        Genotypes -> Latent space -> Phenotypes.
+        """
+        embeddings = self.genotype_encoder(genotypes)
+        decoded_phenotypes = self.phenotype_decoder(embeddings)
+        return decoded_phenotypes
