@@ -103,8 +103,7 @@ class GPAtlasModel(torch.nn.Module):
 
     def autoencode_phenotypes(self, phenotypes: torch.Tensor) -> torch.Tensor:
         """
-        Autoencode phenotypes:
-        Phenotypes -> Latent space -> Decoded phenotypes.
+        Autoencode phenotypes: phenotypes -> latent space -> decoded phenotypes.
         """
         embeddings = self.phenotype_encoder(phenotypes)
         decoded_phenotypes = self.phenotype_decoder(embeddings)
@@ -112,8 +111,7 @@ class GPAtlasModel(torch.nn.Module):
 
     def forward(self, genotypes: torch.Tensor) -> torch.Tensor:
         """
-        Canonical forward pass of the model:
-        Genotypes -> Latent space -> Phenotypes.
+        Canonical forward pass of the model: genotypes -> latent space -> phenotypes.
         """
         embeddings = self.genotype_encoder(genotypes)
         decoded_phenotypes = self.phenotype_decoder(embeddings)

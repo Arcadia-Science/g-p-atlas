@@ -217,12 +217,15 @@ class GPAtlasTrainer:
         self.model.train()
 
         # First train the phenotype encoder-decoder.
+        print("Training phenotype encoder-decoder...")
         self._train_phenotype_encoder_decoder(loader=loader)
 
         # Freeze the phenotype encoder-decoder before training the genotype encoder.
+        print("Freezing phenotype encoder-decoder...")
         self.model.freeze_phenotype_encoder_decoder()
 
         # With the phenotype encoder-decoder frozen, train the genotype encoder.
+        print("Training genotype encoder...")
         self._train_genotype_encoder(loader=loader)
 
     def plot_training_losses(self, output_dirpath: pathlib.Path) -> None:
@@ -270,12 +273,11 @@ class GPAtlasTrainer:
             phenotypes = phenotypes.to(self.device)
 
             with torch.no_grad():
-                embeddings: torch.Tensor
-                if encoder_type == "genotype":
-                    embeddings = self.model.genotype_encoder(genotypes)
-                elif encoder_type == "phenotype":
-                    embeddings = self.model.phenotype_encoder(phenotypes)
-
+                embeddings = (
+                    self.model.genotype_encoder(genotypes)
+                    if encoder_type == "genotype"
+                    else self.model.phenotype_encoder(phenotypes)
+                )
                 decoded_phenotypes = self.model.phenotype_decoder(embeddings)
 
             all_true_phenotypes[ind] = phenotypes.detach().cpu().numpy()
@@ -304,11 +306,11 @@ class GPAtlasTrainer:
             Forward function for the feature ablation method from Captum.
             """
             genotypes, phenotypes = inputs
-            embeddings: torch.Tensor
-            if encoder_type == "genotype":
-                embeddings = self.model.genotype_encoder(genotypes)
-            elif encoder_type == "phenotype":
-                embeddings = self.model.phenotype_encoder(phenotypes)
+            embeddings = (
+                self.model.genotype_encoder(genotypes)
+                if encoder_type == "genotype"
+                else self.model.phenotype_encoder(phenotypes)
+            )
             decoded_phenotypes = self.model.phenotype_decoder(embeddings)
             return F.mse_loss(
                 decoded_phenotypes + EPS,

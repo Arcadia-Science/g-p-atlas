@@ -66,17 +66,10 @@ def test_trainer_initialization(trainer: GPAtlasTrainer):
     assert trainer.genotype_encoder_training_losses == []
 
 
-def test_train_genotype_encoder(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
-    """Test the training flow."""
+def test_train(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
+    """Test the main training loop."""
 
-    # First train the phenotype encoder-decoder.
-    trainer._train_phenotype_encoder_decoder(train_dataloader)
-
-    # Freeze the phenotype encoder-decoder.
-    trainer.model.freeze_phenotype_encoder_decoder()
-
-    # Train the genotype encoder.
-    trainer._train_genotype_encoder(train_dataloader)
+    trainer.train(train_dataloader)
 
     # Check that training losses were recorded.
     # There are 4 batches in the dataloader, and 2 epochs of training,

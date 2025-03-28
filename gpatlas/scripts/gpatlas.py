@@ -45,10 +45,10 @@ def dump_configs(
     Dump the model and trainer configuration files to the output directory.
     """
     with open(output_dirpath / "model-config.yaml", "w") as file:
-        yaml.dump(model_config.model_dump(), file)
+        yaml.safe_dump(model_config.model_dump(), file)
 
     with open(output_dirpath / "trainer-config.yaml", "w") as file:
-        yaml.dump(trainer_config.model_dump(), file)
+        yaml.safe_dump(trainer_config.model_dump(), file)
 
 
 @click.group()
