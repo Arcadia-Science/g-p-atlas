@@ -1,34 +1,29 @@
-import pickle
-
+import h5py
 import numpy as np
 import torch
 from torch.utils.data.dataset import Dataset
 
 
 class GPAtlasDataset(Dataset):
-    """
-    A class for importing simulated genotype and phenotype data.
-
-    It expects a pickled object that is organized as a dictionary of arrays:
-    'genotypes': array of shape [n_animals, n_loci, n_alleles] (one hot at allelic state)
-    'phenotypes': array of shape [n_animals, n_phens] (float values of the phenotypes)
-    """
-
     def __init__(self, filepath: str, num_phenotypes: int | None = None):
         """
         Initialize a GPAtlasDataset.
 
+        filepath: the path to an hdf5 file containing the data.
+            The file should contain the following datasets:
+            - 'genotypes': array of one-hot encoded genotypes (n_samples, n_loci, n_alleles)
+            - 'phenotypes': array of phenotype values (n_samples, n_phenotypes)
+
+        num_phenotypes: the number of phenotypes to use. If `None`, all phenotypes will be used.
+
         Note: `num_phenotypes` was set to `args.n_phens_to_analyze` in the original implementation.
         """
 
-        # TODO: use hdf5 files instead of pickle files.
-        with open(filepath, "rb") as f:
-            self.dataset = pickle.load(f)
+        with h5py.File(filepath, "r") as file:
+            self.phenotypes = torch.tensor(np.array(file["phenotypes"]), dtype=torch.float32)
+            self.genotypes = torch.tensor(np.array(file["genotypes"]), dtype=torch.float32)
 
-        self.phenotypes = torch.tensor(np.array(self.dataset["phenotypes"]), dtype=torch.float32)
-        self.genotypes = torch.tensor(np.array(self.dataset["genotypes"]), dtype=torch.float32)
-
-        if len(self.phenotypes) != len(self.genotypes):
+        if self.phenotypes.shape[0] != self.genotypes.shape[0]:
             raise ValueError("The number of phenotypes and genotypes must be the same.")
 
         # Crop the phenotypes to the specified number.
@@ -37,7 +32,7 @@ class GPAtlasDataset(Dataset):
             self.phenotypes = self.phenotypes[:, :num_phenotypes]
 
     def __len__(self) -> int:
-        return len(self.genotypes)
+        return self.genotypes.shape[0]
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         genotype = torch.flatten(self.genotypes[idx])
