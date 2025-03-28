@@ -92,6 +92,8 @@ class GPAtlasTrainer:
         """
         Train the phenotype encoder and decoder.
         """
+        self.model.phenotype_encoder.train()
+        self.model.phenotype_decoder.train()
 
         training_losses: list[float] = []
 
@@ -100,10 +102,6 @@ class GPAtlasTrainer:
 
             for _, phenotypes in loader:
                 phenotypes = phenotypes.to(self.device)
-
-                # Initialize gradients for training.
-                self.model.phenotype_decoder.zero_grad()
-                self.model.phenotype_encoder.zero_grad()
 
                 # Add noise to phenotypes.
                 noise = torch.randn(phenotypes.shape, device=self.device)
@@ -122,6 +120,8 @@ class GPAtlasTrainer:
                 )
 
                 # Back propagate and update the model parameters.
+                self.phenotype_decoder_optimizer.zero_grad()
+                self.phenotype_encoder_optimizer.zero_grad()
                 loss.backward()
                 self.phenotype_decoder_optimizer.step()
                 self.phenotype_encoder_optimizer.step()
@@ -143,6 +143,8 @@ class GPAtlasTrainer:
         """
         Train the genotype encoder, using the phenotype decoder trained in the first stage.
         """
+        self.model.genotype_encoder.train()
+
         training_losses: list[float] = []
 
         for epoch_idx in range(self.config.num_epochs):
@@ -158,23 +160,13 @@ class GPAtlasTrainer:
                     :, : self.model.config.n_loci_measured * self.model.config.n_alleles
                 ]
 
-                # TODO: refactor to use torch.bernoulli in order to ensure reproducibility here.
-                # (because torch.manual_seed won't affect np.random.binomial).
-                pos_noise = np.random.binomial(
-                    1, (1 - self.config.genotype_noise_scale) / 2, genotypes.shape
-                )
-                neg_noise = np.random.binomial(
-                    1, (1 - self.config.genotype_noise_scale) / 2, genotypes.shape
-                )
+                # Add noise to the genotypes.
+                p = (1 - self.config.genotype_noise_scale) / 2
+                pos_noise = torch.bernoulli(torch.full(genotypes.shape, p, device=self.device))
+                neg_noise = torch.bernoulli(torch.full(genotypes.shape, p, device=self.device))
+                noisy_genotypes = torch.where(genotypes + pos_noise - neg_noise > 0, 1.0, 0.0)
 
-                # Add the noise to the genetic data.
-                noisy_genotypes = torch.tensor(
-                    np.where((genotypes + pos_noise - neg_noise) > 0, 1, 0),
-                    dtype=torch.float32,
-                    device=self.device,
-                )
-
-                self.model.genotype_encoder.zero_grad()
+                # Encode and decode the genotypes.
                 embeddings = self.model.genotype_encoder(noisy_genotypes)
                 decoded_phenotypes = self.model.phenotype_decoder(embeddings)
 
@@ -182,8 +174,6 @@ class GPAtlasTrainer:
                     decoded_phenotypes + EPS,
                     phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
                 )
-
-                training_losses.append(float(loss.detach()))
 
                 # Calculate the L1 and L2 norms for the weights in the first layer
                 # of the genetic encoder and add them to the reconstruction loss.
@@ -197,8 +187,11 @@ class GPAtlasTrainer:
                 # TODO: shouldn't the L2 norm be squared here?
                 loss += L1_norm * self.config.L1_lambda + L2_norm * self.config.L2_lambda
 
+                self.genotype_encoder_optimizer.zero_grad()
                 loss.backward()
                 self.genotype_encoder_optimizer.step()
+
+                training_losses.append(float(loss.detach()))
 
             elapsed_time = time.time() - epoch_start_time
             print(
