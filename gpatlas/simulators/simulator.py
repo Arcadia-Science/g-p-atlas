@@ -92,16 +92,29 @@ class SimulationData:
     # A dict of dicts of environmental effects for each phenotype and environmental factor.
     env_effects: dict[int, dict[int, float]] = field(default_factory=dict)
 
+    def split_train_test(self) -> tuple[SimulationData, SimulationData]:
+        """
+        Split the data into training and test sets.
+        """
+        raise NotImplementedError("Not implemented yet.")
+
     def save(self, dirpath: str | Path) -> None:
         """
-        Save the simulation data to a directory.
+        Save the simulated genotype and phenotype data as a pair of training and test datasets.
 
-        TODO: save the non-array data (e.g. causal loci, effect sizes, pleiotropic effects, etc).
+        TODO: handle the non-array data (e.g. causal loci, effect sizes, pleiotropic effects, etc).
+        TODO: move the train/test split to a separate function.
         """
-        with h5py.File(dirpath / "data.h5", "w") as file:
-            file.create_dataset("genotypes", data=self.genotypes)
-            file.create_dataset("allele_frequencies", data=self.allele_frequencies)
-            file.create_dataset("phenotypes", data=self.phenotypes)
+        inds = np.arange(self.genotypes.shape[0])
+        np.random.shuffle(inds)
+        num_training_samples = int(self.genotypes.shape[0] * 0.8)
+        train_inds = inds[:num_training_samples]
+        test_inds = inds[num_training_samples:]
+
+        for split, inds in [("train", train_inds), ("test", test_inds)]:
+            with h5py.File(dirpath / f"{split}-data.h5", "w") as file:
+                file.create_dataset("genotypes", data=self.genotypes[inds])
+                file.create_dataset("phenotypes", data=self.phenotypes[inds])
 
 
 class GenotypePhenotypeSimulator:
@@ -362,7 +375,8 @@ class GenotypePhenotypeSimulator:
 @click.command()
 @click.option("--output-dirpath", type=click.Path(path_type=Path), required=True)
 @click.option("--config-filepath", type=click.Path(exists=True, path_type=Path), required=True)
-def run_simulation(output_dirpath: Path, config_filepath: Path):
+@click.option("--split-train-test", type=bool, default=False)
+def run_simulation(output_dirpath: Path, config_filepath: Path, split_train_test: bool):
     """
     Run a simulation and save the results to a file.
     """
@@ -379,6 +393,7 @@ def run_simulation(output_dirpath: Path, config_filepath: Path):
 
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
+
     data.save(output_dirpath)
 
     with open(output_dirpath / "params.yaml", "w") as file:
