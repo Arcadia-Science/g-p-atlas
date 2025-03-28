@@ -31,6 +31,8 @@ class GPAtlasTrainerConfig(BaseModel):
     betas: tuple[float, float] = (0.5, 0.999)  # This was `args.b1` and `args.b2`
 
     phenotype_noise_scale: float = 0.1  # This was args.sd_noise
+
+    # This is the probability of randomly flipping a one-hot encoded genotype.
     genotype_noise_scale: float = 0.3  # This was args.gen_noise
 
     L1_lambda: float = 0.8
@@ -161,7 +163,7 @@ class GPAtlasTrainer:
                 ]
 
                 # Add noise to the genotypes.
-                p = (1 - self.config.genotype_noise_scale) / 2
+                p = self.config.genotype_noise_scale / 2
                 pos_noise = torch.bernoulli(torch.full(genotypes.shape, p, device=self.device))
                 neg_noise = torch.bernoulli(torch.full(genotypes.shape, p, device=self.device))
                 noisy_genotypes = torch.where(genotypes + pos_noise - neg_noise > 0, 1.0, 0.0)
