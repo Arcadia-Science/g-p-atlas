@@ -104,16 +104,21 @@ class SimulationData:
 
         TODO: handle the non-array data (e.g. causal loci, effect sizes, pleiotropic effects, etc).
         TODO: move the train/test split to a separate function.
+        TODO: handle conversion to one-hot encoding properly (allele counts are lost).
         """
-        inds = np.arange(self.genotypes.shape[0])
+        # One-hot encode the genotypes.
+        minor_allele_presence = self.genotypes > 0
+        minor_allele_presence_one_hot = np.eye(2)[minor_allele_presence.astype(np.int_)]
+
+        inds = np.arange(self.phenotypes.shape[0])
         np.random.shuffle(inds)
-        num_training_samples = int(self.genotypes.shape[0] * 0.8)
+        num_training_samples = int(self.phenotypes.shape[0] * 0.8)
         train_inds = inds[:num_training_samples]
         test_inds = inds[num_training_samples:]
 
         for split, inds in [("train", train_inds), ("test", test_inds)]:
             with h5py.File(dirpath / f"{split}-data.h5", "w") as file:
-                file.create_dataset("genotypes", data=self.genotypes[inds])
+                file.create_dataset("genotypes", data=minor_allele_presence_one_hot[inds])
                 file.create_dataset("phenotypes", data=self.phenotypes[inds])
 
 
@@ -397,7 +402,7 @@ def run_simulation(output_dirpath: Path, config_filepath: Path, split_train_test
     data.save(output_dirpath)
 
     with open(output_dirpath / "params.yaml", "w") as file:
-        yaml.dump(params.model_dump(), file)
+        yaml.safe_dump(params.model_dump(), file)
 
     click.echo(f"Simulation results saved to {output_dirpath}")
 
