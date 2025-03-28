@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 import click
+import h5py
 import numpy as np
 import yaml
 from numpy.typing import NDArray
@@ -95,11 +96,12 @@ class SimulationData:
         """
         Save the simulation data to a directory.
 
-        TODO: save the allele frequencies, causal loci, effect sizes, pleiotropic effects,
-        epistatic effects, and environmental effects.
+        TODO: save the non-array data (e.g. causal loci, effect sizes, pleiotropic effects, etc).
         """
-        np.save(dirpath / "genotypes.npy", self.genotypes)
-        np.save(dirpath / "phenotypes.npy", self.phenotypes)
+        with h5py.File(dirpath / "data.h5", "w") as file:
+            file.create_dataset("genotypes", data=self.genotypes)
+            file.create_dataset("allele_frequencies", data=self.allele_frequencies)
+            file.create_dataset("phenotypes", data=self.phenotypes)
 
 
 class GenotypePhenotypeSimulator:
