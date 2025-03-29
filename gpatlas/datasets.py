@@ -11,8 +11,9 @@ class GPAtlasDataset(Dataset):
 
         filepath: the path to an hdf5 file containing the data.
             The file should contain the following datasets:
-            - 'genotypes': array of one-hot encoded genotypes (n_samples, n_loci, n_alleles)
-            - 'phenotypes': array of phenotype values (n_samples, n_phenotypes)
+            - 'genotypes': array of one-hot encoded genotypes with shape
+                `(n_samples, n_loci, n_alleles)`.
+            - 'phenotypes': array of phenotype values with shape `(n_samples, n_phenotypes)`.
 
         num_phenotypes: the number of phenotypes to use. If `None`, all phenotypes will be used.
 
@@ -26,8 +27,7 @@ class GPAtlasDataset(Dataset):
         if self.phenotypes.shape[0] != self.genotypes.shape[0]:
             raise ValueError("The number of phenotypes and genotypes must be the same.")
 
-        # Crop the phenotypes to the specified number.
-        # TODO: should we randomize the order of the phenotypes here?
+        # Take the first `num_phenotypes` phenotypes.
         if num_phenotypes is not None:
             self.phenotypes = self.phenotypes[:, :num_phenotypes]
 
@@ -35,6 +35,8 @@ class GPAtlasDataset(Dataset):
         return self.genotypes.shape[0]
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        # Flatten the 2nd and 3rd dimensions of `genotypes`, as the model expects a single
+        # input dimension of one-hot alleles encoding for the genotype.
         genotype = torch.flatten(self.genotypes[idx])
         phenotypes = self.phenotypes[idx]
         return genotype, phenotypes

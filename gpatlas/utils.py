@@ -1,6 +1,5 @@
 import json
 import pathlib
-from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np

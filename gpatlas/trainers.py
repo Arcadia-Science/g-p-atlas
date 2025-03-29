@@ -27,16 +27,15 @@ class GPAtlasTrainerConfig(BaseModel):
     num_epochs: int = 100
 
     batch_size: int = 16
-    learning_rate: float = 0.001  # This was `args.lr_r`
-    betas: tuple[float, float] = (0.5, 0.999)  # This was `args.b1` and `args.b2`
+    learning_rate: float = 0.001  # This was originally `args.lr_r`
+    betas: tuple[float, float] = (0.5, 0.999)  # This was originally `args.b1` and `args.b2`
 
-    phenotype_noise_scale: float = 0.1  # This was args.sd_noise
+    phenotype_noise_scale: float = 0.1  # This was originally `args.sd_noise`
 
     # This is the probability of randomly flipping a one-hot encoded genotype.
-    genotype_noise_scale: float = 0.3  # This was args.gen_noise
+    genotype_noise_scale: float = 0.3  # This was originally `1 - args.gen_noise`
 
     L1_lambda: float = 0.8
-    L2_lambda: float = 0.01
 
 
 class GPAtlasTrainer:
@@ -114,8 +113,6 @@ class GPAtlasTrainer:
                 decoded_phenotypes = self.model.phenotype_decoder(embeddings)
 
                 # Calculate the reconstruction loss.
-                # TODO: `num_output_phenotypes` will only have an effect here
-                # if it is less than `num_input_phenotypes`.
                 loss = F.mse_loss(
                     decoded_phenotypes + EPS,
                     phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
@@ -156,12 +153,6 @@ class GPAtlasTrainer:
                 genotypes = genotypes.to(self.device)
                 phenotypes = phenotypes.to(self.device)
 
-                # TODO: is this indexing necessary?
-                # Can we instead flatten the 2nd and 3rd dimensions of `genotypes`?
-                genotypes = genotypes[
-                    :, : self.model.config.n_loci_measured * self.model.config.n_alleles
-                ]
-
                 # Add noise to the genotypes.
                 p = self.config.genotype_noise_scale / 2
                 pos_noise = torch.bernoulli(torch.full(genotypes.shape, p, device=self.device))
@@ -177,17 +168,10 @@ class GPAtlasTrainer:
                     phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
                 )
 
-                # Calculate the L1 and L2 norms for the weights in the first layer
-                # of the genetic encoder and add them to the reconstruction loss.
-                # TODO: why do we take a sum over the first dimension here?
-                # This tensor should have shape `(latent_dim, n_loci * n_alleles)`.
-                weights_sum = torch.sum(self.model.genotype_encoder.layers[0].weight, axis=0)  # type: ignore
-
-                L1_norm = torch.linalg.norm(weights_sum, 1)
-                L2_norm = torch.linalg.norm(weights_sum, 2)
-
-                # TODO: shouldn't the L2 norm be squared here?
-                loss += L1_norm * self.config.L1_lambda + L2_norm * self.config.L2_lambda
+                # Add L1 regularization to the weights of the first layer of the genetic encoder,
+                # as many alleles are likely not to be relevant for predicting the phenotypes.
+                L1_norm = torch.linalg.norm(self.model.genotype_encoder.layers[0].weight, ord=1)
+                loss += L1_norm * self.config.L1_lambda
 
                 self.genotype_encoder_optimizer.zero_grad()
                 loss.backward()
@@ -261,9 +245,6 @@ class GPAtlasTrainer:
         )
 
         for ind, (genotypes, phenotypes) in enumerate(loader):
-            genotypes = genotypes[
-                :, : self.model.config.n_loci_measured * self.model.config.n_alleles
-            ]
             genotypes = genotypes.to(self.device)
             phenotypes = phenotypes.to(self.device)
 

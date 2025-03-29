@@ -16,10 +16,18 @@ class GPAtlasModelConfig(BaseModel):
     """
 
     n_loci_measured: int = 3000
+
+    # The number of allelic states at each locus.
     n_alleles: int = 2
 
-    num_input_phenotypes: int = 30  # This was `args.n_phens_to_analyze`
-    num_output_phenotypes: int = 30  # This was `args.n_phens_to_predict`
+    # The number of phenotypes to use as input to the encoder.
+    # (This was `args.n_phens_to_analyze` in the original implementation.)
+    num_input_phenotypes: int = 30
+
+    # The number of phenotypes to train the phenotype autoencoder to reconstruct.
+    # This must be less than or equal to `num_input_phenotypes`.
+    # (This was `args.n_phens_to_predict` in the original implementation.)
+    num_output_phenotypes: int = 30
 
     # The dimensions of the hidden layers in the encoder and decoder.
     # If set to `None`, the model will not have any hidden layers
