@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from gpatlas.constants import EPS
 from gpatlas.models import GPAtlasModel
+from gpatlas.utils import get_device
 
 
 class GPAtlasTrainerConfig(BaseModel):
@@ -61,8 +62,7 @@ class GPAtlasTrainer:
 
         torch.manual_seed(self.config.seed)
 
-        # TODO: consider specifying the device to use in the trainer config.
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         print(f"Using device: {self.device}")
 
         self.phenotype_encoder_decoder_training_losses: list[float] = []
@@ -324,7 +324,7 @@ class GPAtlasTrainer:
 
         ablator = FeatureAblation(forward_func)
 
-        num_input_features = self.model.config.num_output_phenotypes
+        num_input_features = self.model.config.num_input_phenotypes
         attributions = np.zeros((len(loader), num_input_features), dtype=np.float32)
 
         for ind, (_, phenotypes) in enumerate(loader):

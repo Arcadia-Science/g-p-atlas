@@ -51,7 +51,7 @@ def test_dataset_full_phenotypes(mock_h5_dataset):
     assert dataset.phenotypes.shape == (shapes["n_samples"], shapes["n_phenotypes"])
     assert dataset.genotypes.shape == (shapes["n_samples"], shapes["n_loci"], shapes["n_alleles"])
 
-    # Check item retrieval.
+    # Get a single item.
     genotype, phenotype = dataset[0]
     assert genotype.shape == (shapes["n_loci"] * shapes["n_alleles"],)
     assert phenotype.shape == (shapes["n_phenotypes"],)
@@ -59,17 +59,6 @@ def test_dataset_full_phenotypes(mock_h5_dataset):
     # Check data types.
     assert genotype.dtype == torch.float32
     assert phenotype.dtype == torch.float32
-
-
-def test_dataset_flattened_genotypes(mock_h5_dataset):
-    """
-    Test that genotypes are properly flattened when retrieved.
-    """
-    filepath, shapes = mock_h5_dataset
-    dataset = GPAtlasDataset(filepath=filepath)
-
-    # Get a batch of data.
-    genotype, _ = dataset[0]
 
     # Check that the genotype is flattened.
     assert genotype.shape == (shapes["n_loci"] * shapes["n_alleles"],)

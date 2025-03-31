@@ -27,7 +27,7 @@ repository = "https://github.com/Arcadia-Science/g-p-atlas"
 documentation = "https://github.com/Arcadia-Science/g-p-atlas/blob/main/README.md"
 
 [tool.poetry.scripts]
-gpatlas = "gpatlas.scripts.gpatlas:cli"
+gpatlas = "gpatlas.cli.gpatlas:cli"
 
 [[tool.poetry.source]]
 name = "pypi"

@@ -5,9 +5,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 import sklearn.metrics
+import torch
 from numpy.typing import NDArray
 
 from gpatlas.constants import EPS
+
+
+def get_device(device_name: str | None = None) -> torch.device:
+    """
+    Get the PyTorch device to use for training.
+    """
+    if device_name is None or device_name == "auto":
+        device_name = (
+            "mps"
+            if torch.backends.mps.is_available()
+            else "cuda"
+            if torch.cuda.is_available()
+            else "cpu"
+        )
+
+    return torch.device(device_name)
 
 
 def mean_absolute_percentage_error(

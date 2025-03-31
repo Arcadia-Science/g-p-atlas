@@ -11,14 +11,16 @@ def model() -> GPAtlasModel:
     """
     Create a model with small dimensions for fast testing.
     """
+    # Use prime numbers for the model dimensions to avoid any incidental symmetries
+    # that might mask bugs.
     model_config = GPAtlasModelConfig(
-        num_loci_measured=10,
-        num_input_phenotypes=5,
-        num_output_phenotypes=5,
-        latent_dim=4,
-        phenotype_encoder_hidden_dim=8,
-        phenotype_decoder_hidden_dim=8,
-        genotype_encoder_hidden_dim=8,
+        num_loci_measured=13,
+        num_input_phenotypes=11,
+        num_output_phenotypes=7,
+        latent_dim=3,
+        phenotype_encoder_hidden_dim=5,
+        phenotype_decoder_hidden_dim=5,
+        genotype_encoder_hidden_dim=5,
     )
     return GPAtlasModel(config=model_config)
 
@@ -31,28 +33,28 @@ def trainer(model: GPAtlasModel) -> GPAtlasTrainer:
     trainer_config = GPAtlasTrainerConfig(
         seed=42,
         num_epochs=2,
-        batch_size=4,
+        batch_size=3,
         learning_rate=0.01,
     )
     return GPAtlasTrainer(model=model, config=trainer_config)
 
 
 @pytest.fixture
-def train_dataloader() -> DataLoader:
+def train_dataloader(model: GPAtlasModel) -> DataLoader:
     """
     Create a dataloader to use for training.
     """
-    n_samples = 16
-    n_loci = 10
-    n_alleles = 2
-    n_phenotypes = 5
+    n_samples = 9
+    n_loci = model.config.num_loci_measured
+    n_alleles = model.config.num_alleles
+    n_phenotypes = model.config.num_input_phenotypes
 
     # Generate random genotypes and phenotypes.
     genotypes = torch.randint(0, 2, (n_samples, n_loci * n_alleles), dtype=torch.float32)
     phenotypes = torch.rand((n_samples, n_phenotypes), dtype=torch.float32)
 
     dataset = TensorDataset(genotypes, phenotypes)
-    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=3, shuffle=True)
 
     return dataloader
 
@@ -72,9 +74,9 @@ def test_train(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
     trainer.train(train_dataloader)
 
     # Check that training losses were recorded.
-    # There are 4 batches in the dataloader, and 2 epochs of training,
-    # so there should be 8 training losses.
-    assert len(trainer.genotype_encoder_training_losses) == 8
+    # There are 3 batches in the dataloader, and 2 epochs of training,
+    # so there should be 6 training losses.
+    assert len(trainer.genotype_encoder_training_losses) == 6
 
 
 def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
@@ -132,5 +134,5 @@ def test_calculate_feature_importances(trainer: GPAtlasTrainer, train_dataloader
     importances = trainer.calculate_feature_importances(train_dataloader, input_type="phenotype")
     assert importances.shape == (
         len(train_dataloader),
-        trainer.model.config.num_output_phenotypes,
+        trainer.model.config.num_input_phenotypes,
     )

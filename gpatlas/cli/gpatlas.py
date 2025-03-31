@@ -166,6 +166,7 @@ def evaluate(
 
     test_loader = torch.utils.data.DataLoader(
         dataset=test_dataset,
+        # TODO: why use a batch size of 1?
         batch_size=1,
         num_workers=trainer_config.num_cores,
         # Important: we do *not* shuffle the test set so that the order of the samples
