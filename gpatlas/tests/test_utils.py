@@ -57,7 +57,7 @@ def test_compare_true_and_predicted_phenotypes(tmp_path: pathlib.Path):
     n_phenotypes = 5
 
     true_phenotypes = np.random.rand(n_samples, n_phenotypes).astype(np.float32)
-    decoded_phenotypes = true_phenotypes + 0.1 * np.random.randn(n_samples, n_phenotypes).astype(
+    decoded_phenotypes = (true_phenotypes + 0.1 * np.random.randn(n_samples, n_phenotypes)).astype(
         np.float32
     )
 

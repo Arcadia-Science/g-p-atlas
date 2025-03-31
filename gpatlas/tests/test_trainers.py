@@ -14,7 +14,8 @@ def model() -> GPAtlasModel:
     # Use prime numbers for the model dimensions to avoid any incidental symmetries
     # that might mask bugs.
     model_config = GPAtlasModelConfig(
-        num_loci_measured=13,
+        num_loci=13,
+        num_alleles=2,
         num_input_phenotypes=11,
         num_output_phenotypes=7,
         latent_dim=3,
@@ -45,7 +46,7 @@ def train_dataloader(model: GPAtlasModel) -> DataLoader:
     Create a dataloader to use for training.
     """
     n_samples = 9
-    n_loci = model.config.num_loci_measured
+    n_loci = model.config.num_loci
     n_alleles = model.config.num_alleles
     n_phenotypes = model.config.num_input_phenotypes
 
@@ -71,7 +72,9 @@ def test_trainer_initialization(trainer: GPAtlasTrainer):
 def test_train(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
     """Test the main training loop."""
 
-    trainer.train(train_dataloader)
+    # Enable anomaly detection to raise errors if there are NaNs or Infs in the gradients.
+    with torch.autograd.set_detect_anomaly(True, check_nan=True):
+        trainer.train(train_dataloader)
 
     # Check that training losses were recorded.
     # There are 3 batches in the dataloader, and 2 epochs of training,
@@ -128,7 +131,7 @@ def test_calculate_feature_importances(trainer: GPAtlasTrainer, train_dataloader
     importances = trainer.calculate_feature_importances(train_dataloader, input_type="genotype")
     assert importances.shape == (
         len(train_dataloader),
-        trainer.model.config.num_loci_measured * trainer.model.config.num_alleles,
+        trainer.model.config.num_loci * trainer.model.config.num_alleles,
     )
 
     importances = trainer.calculate_feature_importances(train_dataloader, input_type="phenotype")

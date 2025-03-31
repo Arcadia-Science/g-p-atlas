@@ -75,10 +75,16 @@ def cli():
     required=False,
     help="Optional path to the checkpoint file from which to hot-start the training process.",
 )
+@click.option(
+    "--detect-anomaly",
+    is_flag=True,
+    help="Enable anomaly detection.",
+)
 def train(
     dataset_dirpath: pathlib.Path,
     output_dirpath: pathlib.Path,
     hot_start_checkpoint_filepath: pathlib.Path | None,
+    detect_anomaly: bool,
 ):
     """
     Train a G-P Atlas model.
@@ -115,8 +121,14 @@ def train(
         model.load_from_checkpoint(hot_start_checkpoint_filepath)
 
     trainer = GPAtlasTrainer(model=model, config=trainer_config)
-    trainer.train(loader=train_loader)
-    trainer.plot_training_losses(output_dirpath=output_dirpath)
+
+    if detect_anomaly:
+        with torch.autograd.set_detect_anomaly(True, check_nan=True):
+            trainer.train(loader=train_loader)
+    else:
+        trainer.train(loader=train_loader)
+
+    trainer.plot_training_losses(filepath=output_dirpath / "plots" / "training_losses.svg")
 
     # TODO: save checkpoints at regular intervals during training.
     model.save_to_checkpoint(
@@ -150,12 +162,13 @@ def evaluate(
 
     Note: the evaluation uses the final model checkpoint saved during training.
     """
-    model_config, trainer_config = load_configs(output_dirpath)
+    checkpoint_filepath = output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
 
+    model_config, trainer_config = load_configs(output_dirpath)
     model = GPAtlasModel(config=model_config)
-    model.load_from_checkpoint(
-        checkpoint_filepath=output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
-    )
+
+    model.load_from_checkpoint(checkpoint_filepath)
+    print(f"Loaded model from {checkpoint_filepath}")
 
     trainer = GPAtlasTrainer(model=model, config=trainer_config)
 
@@ -176,11 +189,13 @@ def evaluate(
 
     input_types: list[Literal["genotype", "phenotype"]] = ["genotype", "phenotype"]
 
-    # The suffixes 'ge' and 'pe' are abbreviations used to distinguish between results
-    # from using either the genotype or phenotype data as inputs to the model.
+    # The suffixes 'ge' and 'pe' are abbreviations to distinguish between results
+    # from using the genotypes or phenotypes, respectively, as the inputs to the model.
     filename_suffixes = ["ge", "pe"]
 
     for input_type, filename_suffix in zip(input_types, filename_suffixes):
+        print(f"Predicting phenotypes for {len(test_loader)} samples...")
+
         true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
             loader=test_loader, input_type=input_type
         )
@@ -199,6 +214,7 @@ def evaluate(
         )
 
         if calculate_feature_importances:
+            print(f"Calculating feature importances for {len(test_loader)} samples...")
             feature_attributions = trainer.calculate_feature_importances(
                 loader=test_loader, input_type=input_type
             )

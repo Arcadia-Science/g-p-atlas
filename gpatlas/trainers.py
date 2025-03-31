@@ -170,7 +170,7 @@ class GPAtlasTrainer:
 
                 # Use L1 regularization on the weights of the first layer of the genetic encoder,
                 # as many alleles are likely not to be relevant for predicting the phenotypes.
-                l1_norm = torch.sum(torch.abs(self.model.genotype_encoder.layers[0].weight))
+                l1_norm = torch.sum(torch.abs(self.model.genotype_encoder.layers[0].weight))  # type: ignore
                 loss += l1_norm * self.config.l1_lambda
 
                 self.genotype_encoder_optimizer.zero_grad()
@@ -207,7 +207,7 @@ class GPAtlasTrainer:
         print("Training genotype encoder...")
         self._train_genotype_encoder(loader=loader)
 
-    def plot_training_losses(self, output_dirpath: pathlib.Path) -> None:
+    def plot_training_losses(self, filepath: pathlib.Path) -> None:
         """
         Plot all of the training losses.
         """
@@ -217,7 +217,7 @@ class GPAtlasTrainer:
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.legend()
-        plt.savefig(output_dirpath / "reconstruction_loss.svg")
+        plt.savefig(filepath)
         plt.close()
 
     def predict_phenotypes(
@@ -288,7 +288,7 @@ class GPAtlasTrainer:
 
         ablator = FeatureAblation(forward_func)
 
-        num_input_features = self.model.config.num_loci_measured * self.model.config.num_alleles
+        num_input_features = self.model.config.num_loci * self.model.config.num_alleles
         attributions = np.zeros((len(loader), num_input_features), dtype=np.float32)
 
         for ind, (genotypes, phenotypes) in enumerate(loader):

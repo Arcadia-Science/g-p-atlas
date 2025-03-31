@@ -89,7 +89,7 @@ def compare_true_and_predicted_phenotypes(
     mse_values = sklearn.metrics.mean_squared_error(
         true_phenotypes, decoded_phenotypes, multioutput="raw_values"
     )
-    summary_stats["mse"] = mse_values.astype(float).tolist()
+    summary_stats["mse"] = mse_values.astype(float).tolist()  # type: ignore
     plt.hist(mse_values, bins=20)
     plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mse_{suffix}.svg")
     plt.close()
@@ -104,11 +104,11 @@ def compare_true_and_predicted_phenotypes(
     plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mape_{suffix}.svg")
     plt.close()
 
-    # R-squared
+    # R-squared score (coefficient of determination).
     r2_values = sklearn.metrics.r2_score(
         true_phenotypes, decoded_phenotypes, multioutput="raw_values"
     )
-    summary_stats["r2"] = r2_values.astype(float).tolist()
+    summary_stats["r2"] = r2_values.astype(float).tolist()  # type: ignore
     plt.hist(r2_values, bins=20)
     plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_r2_{suffix}.svg")
     plt.close()
