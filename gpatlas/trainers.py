@@ -35,7 +35,7 @@ class GPAtlasTrainerConfig(BaseModel):
     # This is the probability of randomly flipping a one-hot encoded genotype.
     genotype_noise_scale: float = 0.3  # This was originally `1 - args.gen_noise`
 
-    L1_lambda: float = 0.8
+    l1_lambda: float = 0.8
 
 
 class GPAtlasTrainer:
@@ -168,10 +168,10 @@ class GPAtlasTrainer:
                     phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
                 )
 
-                # Add L1 regularization to the weights of the first layer of the genetic encoder,
+                # Use L1 regularization on the weights of the first layer of the genetic encoder,
                 # as many alleles are likely not to be relevant for predicting the phenotypes.
-                L1_norm = torch.linalg.norm(self.model.genotype_encoder.layers[0].weight, ord=1)
-                loss += L1_norm * self.config.L1_lambda
+                l1_norm = torch.sum(torch.abs(self.model.genotype_encoder.layers[0].weight))
+                loss += l1_norm * self.config.l1_lambda
 
                 self.genotype_encoder_optimizer.zero_grad()
                 loss.backward()

@@ -71,7 +71,8 @@ class GPAtlasModel(torch.nn.Module):
             batchnorm_momentum=config.batchnorm_momentum,
         )
 
-        # Note that the input dimension is the number of loci multiplied by the number of alleles.
+        # The input dimension of the genotype encoder is the number of loci multiplied by the
+        # number of alleles, because we flatten the 2nd and 3rd dimensions of the genotype tensor.
         self.genotype_encoder = Encoder(
             input_dim=(config.n_loci_measured * config.n_alleles),
             hidden_dim=config.genotype_encoder_hidden_dim,

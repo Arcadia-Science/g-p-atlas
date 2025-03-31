@@ -9,9 +9,8 @@ class GPAtlasDataset(Dataset):
         """
         Initialize a GPAtlasDataset.
 
-        filepath: the path to an hdf5 file containing the data.
-            The file should contain the following datasets:
-            - 'genotypes': array of one-hot encoded genotypes with shape
+        filepath: the path to an hdf5 file containing the following datasets:
+            - 'genotypes': array of one-hot encoded allelic states with shape
                 `(n_samples, n_loci, n_alleles)`.
             - 'phenotypes': array of phenotype values with shape `(n_samples, n_phenotypes)`.
 
@@ -36,7 +35,7 @@ class GPAtlasDataset(Dataset):
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         # Flatten the 2nd and 3rd dimensions of `genotypes`, as the model expects a single
-        # input dimension of one-hot alleles encoding for the genotype.
+        # input dimension of one-hot encoded alleles for the genotype.
         genotype = torch.flatten(self.genotypes[idx])
         phenotypes = self.phenotypes[idx]
         return genotype, phenotypes
