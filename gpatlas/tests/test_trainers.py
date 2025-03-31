@@ -12,7 +12,7 @@ def model() -> GPAtlasModel:
     Create a model with small dimensions for fast testing.
     """
     model_config = GPAtlasModelConfig(
-        n_loci_measured=10,
+        num_loci_measured=10,
         num_input_phenotypes=5,
         num_output_phenotypes=5,
         latent_dim=4,
@@ -87,7 +87,7 @@ def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoade
 
     # Test prediction with phenotype encoder.
     true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
-        loader=test_dataloader, encoder_type="phenotype"
+        loader=test_dataloader, input_type="phenotype"
     )
 
     # Check output shapes.
@@ -103,7 +103,7 @@ def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoade
 
     # Test prediction with genotype encoder.
     true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
-        loader=test_dataloader, encoder_type="genotype"
+        loader=test_dataloader, input_type="genotype"
     )
 
     # Check output shapes.
@@ -116,3 +116,21 @@ def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoade
         trainer.model.config.num_output_phenotypes,
     )
     assert embeddings.shape == (len(test_dataloader), trainer.model.config.latent_dim)
+
+
+def test_calculate_feature_importances(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
+    """Test the feature importance calculation."""
+
+    trainer.train(train_dataloader)
+
+    importances = trainer.calculate_feature_importances(train_dataloader, input_type="genotype")
+    assert importances.shape == (
+        len(train_dataloader),
+        trainer.model.config.num_loci_measured * trainer.model.config.num_alleles,
+    )
+
+    importances = trainer.calculate_feature_importances(train_dataloader, input_type="phenotype")
+    assert importances.shape == (
+        len(train_dataloader),
+        trainer.model.config.num_output_phenotypes,
+    )

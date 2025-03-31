@@ -10,7 +10,7 @@ def test_model_initialization():
     Test that the model initializes correctly.
     """
     config = GPAtlasModelConfig(
-        n_loci_measured=1000, num_input_phenotypes=20, num_output_phenotypes=20, latent_dim=16
+        num_loci_measured=1000, num_input_phenotypes=20, num_output_phenotypes=20, latent_dim=16
     )
 
     model = GPAtlasModel(config=config)
@@ -24,7 +24,7 @@ def test_model_initialization():
     assert model.phenotype_encoder.layers[0].in_features == config.num_input_phenotypes
     assert model.phenotype_decoder.layers[-1].out_features == config.num_output_phenotypes
     assert model.genotype_encoder.layers[0].in_features == (
-        config.n_loci_measured * config.n_alleles
+        config.num_loci_measured * config.num_alleles
     )
 
 
@@ -33,7 +33,7 @@ def test_model_freeze_unfreeze():
     Test that the model components can be frozen and unfrozen.
     """
     config = GPAtlasModelConfig(
-        n_loci_measured=100, num_input_phenotypes=10, num_output_phenotypes=10, latent_dim=8
+        num_loci_measured=100, num_input_phenotypes=10, num_output_phenotypes=10, latent_dim=8
     )
 
     model = GPAtlasModel(config=config)
@@ -70,7 +70,7 @@ def test_model_checkpoint(tmp_path: pathlib.Path):
     Test that the model can be saved to and loaded from a checkpoint.
     """
     config = GPAtlasModelConfig(
-        n_loci_measured=100, num_input_phenotypes=10, num_output_phenotypes=10, latent_dim=8
+        num_loci_measured=100, num_input_phenotypes=10, num_output_phenotypes=10, latent_dim=8
     )
 
     model = GPAtlasModel(config=config)
@@ -82,7 +82,7 @@ def test_model_checkpoint(tmp_path: pathlib.Path):
     model.load_from_checkpoint(checkpoint_path)
 
     # Initialize a new model with a different config.
-    new_config = config.model_copy(update={"n_loci_measured": config.n_loci_measured * 2})
+    new_config = config.model_copy(update={"num_loci_measured": config.num_loci_measured * 2})
     new_model = GPAtlasModel(config=new_config)
 
     # Load the new model from the checkpoint. This should raise an error, because the model config

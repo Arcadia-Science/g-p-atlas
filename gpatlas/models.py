@@ -15,10 +15,10 @@ class GPAtlasModelConfig(BaseModel):
     - providing a way to define models with or without hidden layers in the encoder and decoder.
     """
 
-    n_loci_measured: int = 3000
+    num_loci_measured: int = 3000
 
     # The number of allelic states at each locus.
-    n_alleles: int = 2
+    num_alleles: int = 2
 
     # The number of phenotypes to use as input to the encoder.
     # (This was `args.n_phens_to_analyze` in the original implementation.)
@@ -74,7 +74,7 @@ class GPAtlasModel(torch.nn.Module):
         # The input dimension of the genotype encoder is the number of loci multiplied by the
         # number of alleles, because we flatten the 2nd and 3rd dimensions of the genotype tensor.
         self.genotype_encoder = Encoder(
-            input_dim=(config.n_loci_measured * config.n_alleles),
+            input_dim=(config.num_loci_measured * config.num_alleles),
             hidden_dim=config.genotype_encoder_hidden_dim,
             latent_dim=config.latent_dim,
             batchnorm_momentum=config.batchnorm_momentum,

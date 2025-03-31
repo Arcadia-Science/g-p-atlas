@@ -137,7 +137,14 @@ def train(
     required=True,
     help="Path to the directory where all output files should be saved.",
 )
-def evaluate(dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path):
+@click.option(
+    "--calculate-feature-importances",
+    is_flag=True,
+    help="Calculate feature importances for the genotype and phenotype encoders.",
+)
+def evaluate(
+    dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path, calculate_feature_importances: bool
+):
     """
     Evaluate a trained G-P Atlas model.
 
@@ -166,25 +173,19 @@ def evaluate(dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path):
         shuffle=False,
     )
 
-    encoder_types: list[Literal["genotype", "phenotype"]] = ["genotype", "phenotype"]
+    input_types: list[Literal["genotype", "phenotype"]] = ["genotype", "phenotype"]
 
-    # The suffixes 'ge' and 'pe' are used to distinguish between results
-    # from the genotype and phenotype encoders, respectively.
+    # The suffixes 'ge' and 'pe' are abbreviations used to distinguish between results
+    # from using either the genotype or phenotype data as inputs to the model.
     filename_suffixes = ["ge", "pe"]
 
-    for encoder_type, filename_suffix in zip(encoder_types, filename_suffixes):
+    for input_type, filename_suffix in zip(input_types, filename_suffixes):
         true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
-            loader=test_loader, encoder_type=encoder_type
+            loader=test_loader, input_type=input_type
         )
-
-        feature_attributions = trainer.calculate_feature_importances(
-            loader=test_loader, encoder_type=encoder_type
-        )
-
-        # Save the arrays of predicted and true phenotypes, embeddings, and feature attributions.
         for array, name in zip(
-            [true_phenotypes, decoded_phenotypes, embeddings, feature_attributions],
-            ["true_phenotypes", "decoded_phenotypes", "embeddings", "feature_attributions"],
+            [true_phenotypes, decoded_phenotypes, embeddings],
+            ["true_phenotypes", "decoded_phenotypes", "embeddings"],
         ):
             np.save(output_dirpath / "predictions" / f"{name}_{filename_suffix}.npy", array)
 
@@ -195,6 +196,15 @@ def evaluate(dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path):
             output_dirpath=(output_dirpath / "plots"),
             suffix=filename_suffix,
         )
+
+        if calculate_feature_importances:
+            feature_attributions = trainer.calculate_feature_importances(
+                loader=test_loader, input_type=input_type
+            )
+            feature_attributions_filepath = (
+                output_dirpath / "predictions" / f"feature_attributions_{filename_suffix}.npy"
+            )
+            np.save(feature_attributions_filepath, feature_attributions)
 
 
 if __name__ == "__main__":
