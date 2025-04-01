@@ -36,18 +36,19 @@ def load_configs(output_dirpath: pathlib.Path) -> tuple[GPAtlasModelConfig, GPAt
     return model_config, trainer_config
 
 
-def dump_configs(
+def dump_full_configs(
     model_config: GPAtlasModelConfig,
     trainer_config: GPAtlasTrainerConfig,
     output_dirpath: pathlib.Path,
 ) -> None:
     """
-    Dump the model and trainer configuration files to the output directory.
+    Dump the full model and trainer configuration files to the output directory.
+    The "full" configs include all of the default values for the parameters.
     """
-    with open(output_dirpath / "model-config.yaml", "w") as file:
+    with open(output_dirpath / "model-full-config.yaml", "w") as file:
         yaml.safe_dump(model_config.model_dump(), file)
 
-    with open(output_dirpath / "trainer-config.yaml", "w") as file:
+    with open(output_dirpath / "trainer-full-config.yaml", "w") as file:
         yaml.safe_dump(trainer_config.model_dump(), file)
 
 
@@ -100,8 +101,8 @@ def train(
 
     model_config, trainer_config = load_configs(output_dirpath)
 
-    # Save the configs to capture the actual values.
-    dump_configs(model_config, trainer_config, output_dirpath / "logs")
+    # Save the configs to capture all of the actual configuration values.
+    dump_full_configs(model_config, trainer_config, output_dirpath / "logs")
 
     train_dataset = GPAtlasDataset(
         filepath=str(dataset_dirpath / "train-data.h5"),

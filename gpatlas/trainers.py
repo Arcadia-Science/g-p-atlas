@@ -310,7 +310,7 @@ class GPAtlasTrainer:
         self.model.to(self.device)
         self.model.eval()
 
-        def forward_func(phenotypes: torch.Tensor, true_phenotypes: torch.Tensor) -> torch.Tensor:
+        def forward_func(phenotypes: torch.Tensor) -> torch.Tensor:
             """
             Forward function for the feature ablation method from Captum.
             """
@@ -319,7 +319,7 @@ class GPAtlasTrainer:
             )
             return F.mse_loss(
                 decoded_phenotypes + EPS,
-                true_phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
+                phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
             )
 
         ablator = FeatureAblation(forward_func)
@@ -330,7 +330,7 @@ class GPAtlasTrainer:
         for ind, (_, phenotypes) in enumerate(loader):
             phenotypes = phenotypes.to(self.device)
             with torch.no_grad():
-                attribution = ablator.attribute(inputs=(phenotypes, phenotypes))
+                attribution = ablator.attribute(inputs=phenotypes)
             attributions[ind] = attribution[0].squeeze().detach().cpu().numpy()
 
         return attributions
