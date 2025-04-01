@@ -12,43 +12,42 @@ from gpatlas.trainers import GPAtlasTrainer, GPAtlasTrainerConfig
 from gpatlas.utils import compare_true_and_predicted_phenotypes
 
 
-def load_configs(output_dirpath: pathlib.Path) -> tuple[GPAtlasModelConfig, GPAtlasTrainerConfig]:
+def load_configs(
+    model_config_filepath: pathlib.Path | None,
+    trainer_config_filepath: pathlib.Path | None,
+) -> tuple[GPAtlasModelConfig, GPAtlasTrainerConfig]:
     """
     Load the model and trainer configuration files from the output directory.
     """
-    model_config_filepath = output_dirpath / "model-config.yaml"
-    trainer_config_filepath = output_dirpath / "trainer-config.yaml"
+    model_config: GPAtlasModelConfig
+    if model_config_filepath is None:
+        model_config = GPAtlasModelConfig()
+    else:
+        with open(model_config_filepath) as file:
+            model_config = GPAtlasModelConfig(**(yaml.safe_load(file) or {}))
 
-    if not model_config_filepath.exists():
-        raise FileNotFoundError(f"Model configuration file not found at {model_config_filepath}")
-
-    if not trainer_config_filepath.exists():
-        raise FileNotFoundError(
-            f"Trainer configuration file not found at {trainer_config_filepath}"
-        )
-
-    with open(model_config_filepath) as file:
-        model_config = GPAtlasModelConfig(**(yaml.safe_load(file) or {}))
-
-    with open(trainer_config_filepath) as file:
-        trainer_config = GPAtlasTrainerConfig(**(yaml.safe_load(file) or {}))
+    trainer_config: GPAtlasTrainerConfig
+    if trainer_config_filepath is None:
+        trainer_config = GPAtlasTrainerConfig()
+    else:
+        with open(trainer_config_filepath) as file:
+            trainer_config = GPAtlasTrainerConfig(**(yaml.safe_load(file) or {}))
 
     return model_config, trainer_config
 
 
-def dump_full_configs(
+def dump_configs(
     model_config: GPAtlasModelConfig,
     trainer_config: GPAtlasTrainerConfig,
     output_dirpath: pathlib.Path,
 ) -> None:
     """
-    Dump the full model and trainer configuration files to the output directory.
-    The "full" configs include all of the default values for the parameters.
+    Dump the model and trainer configuration files to the output directory.
     """
-    with open(output_dirpath / "model-full-config.yaml", "w") as file:
+    with open(output_dirpath / "model-config.yaml", "w") as file:
         yaml.safe_dump(model_config.model_dump(), file)
 
-    with open(output_dirpath / "trainer-full-config.yaml", "w") as file:
+    with open(output_dirpath / "train-config.yaml", "w") as file:
         yaml.safe_dump(trainer_config.model_dump(), file)
 
 
@@ -59,19 +58,36 @@ def cli():
 
 @cli.command()
 @click.option(
-    "--dataset-dirpath",
+    "dataset_dirpath",
+    "--dataset",
     type=click.Path(exists=True, path_type=pathlib.Path),
     required=True,
     help="Path to the directory containing the training and test dataset files.",
 )
 @click.option(
-    "--output-dirpath",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    "output_dirpath",
+    "--output",
+    type=click.Path(path_type=pathlib.Path),
     required=True,
     help="Path to the directory where all output files should be saved.",
 )
 @click.option(
-    "--hot-start-checkpoint-filepath",
+    "model_config_filepath",
+    "--model-config",
+    type=click.Path(exists=True, path_type=pathlib.Path),
+    required=False,
+    help="Optional path to the model configuration file.",
+)
+@click.option(
+    "trainer_config_filepath",
+    "--train-config",
+    type=click.Path(exists=True, path_type=pathlib.Path),
+    required=False,
+    help="Optional path to the training configuration file.",
+)
+@click.option(
+    "hot_start_checkpoint_filepath",
+    "--hot-start-checkpoint",
     type=click.Path(exists=True, path_type=pathlib.Path),
     required=False,
     help="Optional path to the checkpoint file from which to hot-start the training process.",
@@ -84,25 +100,24 @@ def cli():
 def train(
     dataset_dirpath: pathlib.Path,
     output_dirpath: pathlib.Path,
+    model_config_filepath: pathlib.Path | None,
+    trainer_config_filepath: pathlib.Path | None,
     hot_start_checkpoint_filepath: pathlib.Path | None,
     detect_anomaly: bool,
 ):
     """
     Train a G-P Atlas model.
-
-    Note: the output directory must exist and must contain valid configuration files
-    (`model_config.yaml` and `trainer_config.yaml`) that define the model and trainer
-    configurations, respectively.
     """
 
     # Create the output directory structure.
+    output_dirpath.mkdir(parents=True, exist_ok=True)
     for subdir in ["checkpoints", "plots", "predictions", "logs"]:
         (output_dirpath / subdir).mkdir(parents=True, exist_ok=True)
 
-    model_config, trainer_config = load_configs(output_dirpath)
+    model_config, trainer_config = load_configs(model_config_filepath, trainer_config_filepath)
 
     # Save the configs to capture all of the actual configuration values.
-    dump_full_configs(model_config, trainer_config, output_dirpath / "logs")
+    dump_configs(model_config, trainer_config, output_dirpath)
 
     train_dataset = GPAtlasDataset(
         filepath=str(dataset_dirpath / "train-data.h5"),
@@ -139,13 +154,15 @@ def train(
 
 @cli.command()
 @click.option(
-    "--dataset-dirpath",
+    "dataset_dirpath",
+    "--dataset",
     type=click.Path(exists=True, path_type=pathlib.Path),
     required=True,
     help="Path to the directory containing the training and test dataset files.",
 )
 @click.option(
-    "--output-dirpath",
+    "output_dirpath",
+    "--output",
     type=click.Path(path_type=pathlib.Path),
     required=True,
     help="Path to the directory where all output files should be saved.",
@@ -163,11 +180,15 @@ def evaluate(
 
     Note: the evaluation uses the final model checkpoint saved during training.
     """
-    checkpoint_filepath = output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
 
-    model_config, trainer_config = load_configs(output_dirpath)
+    model_config, trainer_config = load_configs(
+        model_config_filepath=output_dirpath / "model-config.yaml",
+        trainer_config_filepath=output_dirpath / "train-config.yaml",
+    )
+
     model = GPAtlasModel(config=model_config)
 
+    checkpoint_filepath = output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
     model.load_from_checkpoint(checkpoint_filepath)
     print(f"Loaded model from {checkpoint_filepath}")
 
@@ -190,7 +211,7 @@ def evaluate(
 
     input_types: list[Literal["genotype", "phenotype"]] = ["genotype", "phenotype"]
 
-    # The suffixes 'ge' and 'pe' are abbreviations to distinguish between results
+    # The suffixes "ge" and "pe" are abbreviations to distinguish between results
     # from using the genotypes or phenotypes, respectively, as the inputs to the model.
     filename_suffixes = ["ge", "pe"]
 
