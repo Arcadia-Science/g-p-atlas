@@ -1,4 +1,5 @@
 import pathlib
+import shutil
 from typing import Literal
 
 import click
@@ -80,7 +81,7 @@ def cli():
 )
 @click.option(
     "trainer_config_filepath",
-    "--train-config",
+    "--training-config",
     type=click.Path(exists=True, path_type=pathlib.Path),
     required=False,
     help="Optional path to the training configuration file.",
@@ -97,6 +98,11 @@ def cli():
     is_flag=True,
     help="Enable anomaly detection.",
 )
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    help="Overwrite the output directory if it already exists.",
+)
 def train(
     dataset_dirpath: pathlib.Path,
     output_dirpath: pathlib.Path,
@@ -104,15 +110,21 @@ def train(
     trainer_config_filepath: pathlib.Path | None,
     hot_start_checkpoint_filepath: pathlib.Path | None,
     detect_anomaly: bool,
+    overwrite: bool,
 ):
     """
     Train a G-P Atlas model.
     """
+    if output_dirpath.exists():
+        if overwrite:
+            shutil.rmtree(output_dirpath)
+        else:
+            raise FileExistsError(f"Output directory {output_dirpath} already exists.")
 
     # Create the output directory structure.
-    output_dirpath.mkdir(parents=True, exist_ok=True)
+    output_dirpath.mkdir(parents=True)
     for subdir in ["checkpoints", "plots", "predictions", "logs"]:
-        (output_dirpath / subdir).mkdir(parents=True, exist_ok=True)
+        (output_dirpath / subdir).mkdir(parents=True)
 
     model_config, trainer_config = load_configs(model_config_filepath, trainer_config_filepath)
 
