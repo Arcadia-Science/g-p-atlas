@@ -22,19 +22,19 @@ class GPAtlasTrainerConfig(BaseModel):
 
     seed: int = 47
 
-    num_cores: int = 14  # this was `args.n_cpu`
+    num_cores: int = 14  # this was originally `args.n_cpu`.
 
-    # TODO: do we need separate num_epochs for phenotype encoder-decoder and genotype encoder?
+    # TODO: add early-stopping criteria.
     num_epochs: int = 100
 
     batch_size: int = 16
-    learning_rate: float = 0.001  # This was originally `args.lr_r`
+    learning_rate: float = 0.001  # This was originally `args.lr_r`.
     betas: tuple[float, float] = (0.5, 0.999)  # This was originally `args.b1` and `args.b2`
 
-    phenotype_noise_scale: float = 0.1  # This was originally `args.sd_noise`
+    phenotype_noise_scale: float = 0.1  # This was originally `args.sd_noise`.
 
     # This is the probability of randomly flipping a one-hot encoded genotype.
-    genotype_noise_scale: float = 0.3  # This was originally `1 - args.gen_noise`
+    genotype_noise_scale: float = 0.3  # This was originally `1 - args.gen_noise`.
 
     l1_lambda: float = 0.8
 
@@ -281,6 +281,8 @@ class GPAtlasTrainer:
             predicted_phenotypes = self.model.phenotype_decoder(
                 self.model.genotype_encoder(genotypes)
             )
+
+            # TODO: use an unreduced loss function to enable calculating per-phenotype importances.
             return F.mse_loss(
                 predicted_phenotypes + EPS,
                 true_phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
