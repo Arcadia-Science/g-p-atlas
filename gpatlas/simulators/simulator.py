@@ -106,6 +106,10 @@ class SimulationData:
         TODO: move the train/test split to a separate function.
         TODO: handle conversion to one-hot encoding properly (allele counts are lost).
         """
+        dirpath = Path(dirpath)
+        assert self.genotypes is not None
+        assert self.phenotypes is not None
+
         # One-hot encode the genotypes.
         minor_allele_presence = self.genotypes > 0
         minor_allele_presence_one_hot = np.eye(2)[minor_allele_presence.astype(np.int_)]
