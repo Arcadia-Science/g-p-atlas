@@ -51,6 +51,10 @@ package-dir = { "" = "gpatlas" }
 where = ["gpatlas"]
 exclude = ["envs*", "ignore*", "external*"]
 
+
+[tool.poetry.group.modal.dependencies]
+modal = "^0.74.12"
+
 [tool.ruff]
 # The directories to consider when resolving first- vs. third-party imports.
 src = ["."]
