@@ -259,8 +259,8 @@ def cli():
     pass
 
 
-cli.add_command(train_command)
-cli.add_command(evaluate_command)
+cli.add_command(train_command, name="train")
+cli.add_command(evaluate_command, name="evaluate")
 
 
 if __name__ == "__main__":
