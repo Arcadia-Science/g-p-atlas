@@ -1,0 +1,102 @@
+[build-system]
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+strict = false
+vcs = "git"
+# The "pep440" style appends the git commit hash to the version number when there are commits
+# on `main` since the last tag.
+style = "pep440"
+# Append a flag to the version number if there are uncommitted changes.
+dirty = true
+
+[tool.poetry]
+name = "g-p-atlas"
+# This version is a placeholder. It will be updated at build time by poetry-dynamic-versioning
+# from the latest git tag.
+version = "0.0.0"
+description = "A Python package for training and evaluating nonlinear genotype-phenotype models."
+authors = ["Arcadia Science <info@arcadiascience.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [{ include = "gpatlas" }]
+homepage = "https://github.com/Arcadia-Science/g-p-atlas"
+repository = "https://github.com/Arcadia-Science/g-p-atlas"
+documentation = "https://github.com/Arcadia-Science/g-p-atlas/blob/main/README.md"
+
+[tool.poetry.scripts]
+gpatlas = "gpatlas.cli.gpatlas:cli"
+
+[[tool.poetry.source]]
+name = "pypi"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "pypi_test"
+# Note: poetry only support the "legacy" API.
+url = "https://test.pypi.org/legacy/"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+numpy = "<2.0"
+torch = "^2.6.0"
+scipy = "^1.15.2"
+captum = "^0.8.0"
+pydantic = "^2.11.1"
+h5py = "^3.13.0"
+matplotlib = "^3.10.1"
+scikit-learn = "^1.6.1"
+click = "^8.1.8"
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "3.5.0"
+pyright = "^1.1.367"
+pytest = "8.2.1"
+ruff = "0.4.4"
+
+[tool.poetry.group.build.dependencies]
+poetry-dynamic-versioning = { extras = ["plugin"], version = "^1.4.0" }
+
+[tool.ruff]
+# The directories to consider when resolving first- vs. third-party imports.
+src = ["."]
+line-length = 100
+indent-width = 4
+extend-include = ["*.ipynb"]
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore star and unused imports.
+"__init__.py" = ["F403", "F405"]
+
+[tool.ruff.lint]
+select = [
+    "B",  # flake8-bugbear
+    "E",  # pycodestyle error
+    "F",  # pyflakes
+    "I",  # isort
+    "UP", # pyupgrade
+    "W",  # pycodestyle warning
+]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+order-by-type = true
+no-lines-before = ["future", "standard-library"]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+exclude = ["./.venv", "./dist", "./external"]
+
+# Pyright reports a lot of unknown-member errors for some packages.
+# If this is a problem, set this to `false`.
+reportUnknownMemberType = false

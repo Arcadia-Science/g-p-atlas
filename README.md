@@ -1,0 +1,159 @@
+
+# g-p-atlas
+
+This repo contains a Python package called `g-p-atlas`.
+
+## Directory structure
+
+The repo is organized as follows:
+
+```
+envs/            # conda environment files
+external/        # external code from other sources (including the original g-p-atlas code)
+gpatlas/         # the `gpatlas` package
+├── cli/         # CLI scripts for the package
+├── tests/       # tests for the package
+├── datasets.py  # dataset definitions
+├── layers.py    # custom PyTorch layers
+├── models.py    # model definitions
+├── trainers.py  # training loops
+├── utils.py     # utility functions
+└── __init__.py  # package initialization
+```
+
+## Usage
+
+This package is still under development and does not have a formal versioned release or a release on PyPI. To install it, follow the direction below under "Environment setup" below.
+
+Once the package is installed, the `gpatlas` CLI will be available. To train a model, run the `train` CLI script:
+
+```bash
+gpatlas train \
+    --dataset /path/to/dataset/directory \
+    --output /path/to/output/directory \
+    --model-config /path/to/model-config.yaml \
+    --train-config /path/to/trainer-config.yaml
+```
+
+The `--dataset` directory should contain a `train-data.h5` file with the training data and a `test-data.h5` file with the test data. See below for more information on the format of these files.
+
+The `--output` directory will contain the trained model, plots, and other artifacts.
+
+The `model-config.yaml` file should specify the model architecture and the `trainer-config.yaml` file should specify the training configuration. Note that the model architecture must match the dimensions of the data in the `train-data.h5` and `test-data.h5` files. The schema for these files is defined in `gpatlas/models.py` and `gpatlas/trainers.py`, respectively.
+
+After running this command, the output directory will contain the following files:
+
+```
+/path/to/output/directory
+├── checkpoints
+├── logs
+├── plots
+├── predictions
+├── model-config.yaml
+└── train-config.yaml
+```
+
+To evaluate a trained model, run the `evaluate` CLI script:
+
+```bash
+gpatlas evaluate \
+    --dataset /path/to/dataset/directory \
+    --output /path/to/output/directory
+```
+
+This will generate plots in the `plots/` directory and save the predicted phenotypes in the `predictions/` directory.
+
+### Dataset format
+
+The dataset directory should contain a `train-data.h5` file with the training data and a `test-data.h5` file with the test data. These files should contain two datasets: `genotypes` and `phenotypes`. The `genotypes` dataset should be an array of one-hot encoded allelic states for each sample and locus. Its shape should be `(num_samples, num_loci, num_allelic_states)`. (In most cases, `num_allelic_states` is either 2 for bi-allelic loci or 3 for bi-allelic loci in a diploid organism.) The `phenotypes` dataset is an array of quantitative phenotypes with dimensions `(num_samples, num_phenotypes)`. The order of the samples in the first dimension of the two datasets is assumed to match.
+
+## Development
+
+### Environment setup
+
+We use poetry for dependency management and build tooling. You can either install poetry globally or within a virtual environment in order to isolate poetry itself. We recommend the latter. First, create a new conda environment from the `dev.yml` environment file:
+
+```bash
+conda env create -n g-p-atlas-dev -f envs/dev.yml
+conda activate g-p-atlas-dev
+```
+
+Next, install dependencies, including the development dependencies:
+
+```bash
+poetry install --no-root --with dev
+```
+
+If you have installed poetry globally, activate the poetry virtual environment:
+
+```bash
+poetry shell
+```
+
+Poetry detects and respects existing virtual environments, so if you are using poetry within a conda environment, this step is not needed.
+
+Finally, install the package itself in editable mode:
+
+```bash
+pip install -e .
+```
+
+### Formatting and linting
+
+If you have installed poetry globally, make sure to run `poetry shell` before running the commands below.
+
+To format the code, use the following command:
+
+```bash
+make format
+```
+
+To run the lint checks and type checking, use the following command:
+
+```bash
+make lint
+```
+
+### Pre-commit hooks
+
+We use pre-commit to run formatting and lint checks before each commit. To install the pre-commit hooks, use the following command:
+
+```bash
+pre-commit install
+```
+
+To run the pre-commit checks manually, use the following command:
+
+```bash
+make pre-commit
+```
+
+### Testing
+
+We use `pytest` for testing. The tests are found in the `gpatlas/tests/` subpackage. To run the tests, use the following command:
+
+```bash
+make test
+```
+
+### Managing dependencies
+
+We use poetry to manage dependencies. To add a new dependency, use the following command:
+
+```bash
+poetry add some-package
+```
+
+To add a new development dependency, use the following command:
+
+```bash
+poetry add -G dev some-dev-package
+```
+
+To update a dependency, use the following command:
+
+```bash
+poetry update some-package
+```
+
+Whenever you add or update a dependency, poetry will automatically update both `pyproject.toml` and the `poetry.lock` file. Make sure to commit the changes to these files to the repo.
