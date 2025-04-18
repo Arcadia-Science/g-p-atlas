@@ -52,16 +52,11 @@ def dump_configs(
         yaml.safe_dump(trainer_config.model_dump(), file)
 
 
-@click.group()
-def cli():
-    pass
-
-
-@cli.command()
+@click.command()
 @click.option(
     "dataset_dirpath",
     "--dataset",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    type=click.Path(path_type=pathlib.Path),
     required=True,
     help="Path to the directory containing the training and test dataset files.",
 )
@@ -75,21 +70,21 @@ def cli():
 @click.option(
     "model_config_filepath",
     "--model-config",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    type=click.Path(path_type=pathlib.Path),
     required=False,
     help="Optional path to the model configuration file.",
 )
 @click.option(
     "trainer_config_filepath",
     "--training-config",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    type=click.Path(path_type=pathlib.Path),
     required=False,
     help="Optional path to the training configuration file.",
 )
 @click.option(
     "hot_start_checkpoint_filepath",
     "--hot-start-checkpoint",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    type=click.Path(path_type=pathlib.Path),
     required=False,
     help="Optional path to the checkpoint file from which to hot-start the training process.",
 )
@@ -103,7 +98,7 @@ def cli():
     is_flag=True,
     help="Overwrite the output directory if it already exists.",
 )
-def train(
+def train_command(
     dataset_dirpath: pathlib.Path,
     output_dirpath: pathlib.Path,
     model_config_filepath: pathlib.Path | None,
@@ -164,11 +159,11 @@ def train(
     )
 
 
-@cli.command()
+@click.command()
 @click.option(
     "dataset_dirpath",
     "--dataset",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    type=click.Path(path_type=pathlib.Path),
     required=True,
     help="Path to the directory containing the training and test dataset files.",
 )
@@ -184,7 +179,7 @@ def train(
     is_flag=True,
     help="Calculate feature importances for the genotype and phenotype encoders.",
 )
-def evaluate(
+def evaluate_command(
     dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path, calculate_feature_importances: bool
 ):
     """
@@ -257,6 +252,15 @@ def evaluate(
                 output_dirpath / "predictions" / f"feature_attributions_{filename_suffix}.npy"
             )
             np.save(feature_attributions_filepath, feature_attributions)
+
+
+@click.group()
+def cli():
+    pass
+
+
+cli.add_command(train_command)
+cli.add_command(evaluate_command)
 
 
 if __name__ == "__main__":
