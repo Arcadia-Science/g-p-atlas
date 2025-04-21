@@ -5,33 +5,21 @@ import click
 import modal
 
 from gpatlas.cli.gpatlas import evaluate_command, train_command
-
-
-def find_package_root_dir() -> pathlib.Path:
-    """
-    Find the nearest package root directory.
-
-    If no package root is found, return the directory of this file.
-    """
-    starting_dir = pathlib.Path(__file__).parent
-    current_dir = starting_dir
-    while not current_dir.joinpath("pyproject.toml").exists():
-        current_dir = current_dir.parent
-        if current_dir == pathlib.Path("/"):
-            return starting_dir
-    return current_dir
-
+from gpatlas.utils import find_package_root_dir
 
 GPU_NAME = "a10g"
-VOLUME_NAME = "2025-kcc-gpatlas"
+S3_BUCKET_NAME = "2025-kcc-gpatlas"
 VOLUME_PATH = pathlib.Path("/volume")
 
-volume = modal.Volume.from_name(VOLUME_NAME)
+# Note: this root directory only needs to be correct when executing this module locally, not when
+# this module is executed on Modal (where there is no local repo), but it always needs to be
+# a valid `pathlib.Path` object.
+PACKAGE_ROOT_DIR = find_package_root_dir() or pathlib.Path("")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .add_local_file(
-        find_package_root_dir() / "pyproject.toml",
+        PACKAGE_ROOT_DIR / "pyproject.toml",
         remote_path="/app/pyproject.toml",
         copy=True,
     )
@@ -49,17 +37,32 @@ image = (
 app = modal.App(name="2025-kcc-gpatlas")
 
 
-@app.function(
-    image=image,
-    cpu=1,
-    gpu=GPU_NAME,
-    memory=1024 * 10,
-    timeout=3600,
-    volumes={str(VOLUME_PATH): volume},
-)
+def app_function(**kwargs: Any):
+    """
+    Create an `app.function` decorator with the given kwargs.
+    """
+    default_kwargs = {
+        "cpu": 4,
+        "gpu": GPU_NAME,
+        "memory": 1024 * 10,
+        "timeout": 3600,
+    }
+    default_kwargs.update(kwargs)
+
+    s3_bucket_mount = modal.CloudBucketMount(S3_BUCKET_NAME, secret=modal.Secret.from_dotenv())
+
+    return app.function(
+        image=image,
+        volumes={str(VOLUME_PATH): s3_bucket_mount},
+        **default_kwargs,
+    )
+
+
 def run_command_on_modal(command_name: str, command_kwargs: dict[str, Any]):
     """
     Run a CLI command on modal.
+
+    This function is intended to be decorated with an `app.function` decorator.
     """
     # Import the original CLI commands on modal.
     from gpatlas.cli.gpatlas import evaluate_command, train_command
@@ -80,20 +83,24 @@ def cli():
 
 
 @click.command()
-def modal_train_command(**kwargs: Any):
+@click.option("--gpu", type=str, default=GPU_NAME)
+def modal_train_command(gpu: str, **kwargs: Any):
+    _run_command_on_modal = app_function(gpu=gpu)(run_command_on_modal)
     with modal.enable_output(), app.run():
-        run_command_on_modal.remote("train", kwargs)
+        _run_command_on_modal.remote("train", kwargs)
 
 
 @click.command()
-def modal_evaluate_command(**kwargs: Any):
+@click.option("--gpu", type=str, default=GPU_NAME)
+def modal_evaluate_command(gpu: str, **kwargs: Any):
+    _run_command_on_modal = app_function(gpu=gpu)(run_command_on_modal)
     with modal.enable_output(), app.run():
-        run_command_on_modal.remote("evaluate", kwargs)
+        _run_command_on_modal.remote("evaluate", kwargs)
 
 
-# Copy the CLI parameters from the original commands.
-modal_train_command.params = train_command.params
-modal_evaluate_command.params = evaluate_command.params
+# Append the CLI parameters from the original commands.
+modal_train_command.params += train_command.params
+modal_evaluate_command.params += evaluate_command.params
 
 cli.add_command(modal_train_command, name="train")
 cli.add_command(modal_evaluate_command, name="evaluate")

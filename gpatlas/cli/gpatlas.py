@@ -14,25 +14,16 @@ from gpatlas.utils import compare_true_and_predicted_phenotypes
 
 
 def load_configs(
-    model_config_filepath: pathlib.Path | None,
-    trainer_config_filepath: pathlib.Path | None,
+    model_config_filepath: pathlib.Path, trainer_config_filepath: pathlib.Path
 ) -> tuple[GPAtlasModelConfig, GPAtlasTrainerConfig]:
     """
     Load the model and trainer configuration files from the output directory.
     """
-    model_config: GPAtlasModelConfig
-    if model_config_filepath is None:
-        model_config = GPAtlasModelConfig()
-    else:
-        with open(model_config_filepath) as file:
-            model_config = GPAtlasModelConfig(**(yaml.safe_load(file) or {}))
+    with open(model_config_filepath) as file:
+        model_config = GPAtlasModelConfig(**(yaml.safe_load(file) or {}))
 
-    trainer_config: GPAtlasTrainerConfig
-    if trainer_config_filepath is None:
-        trainer_config = GPAtlasTrainerConfig()
-    else:
-        with open(trainer_config_filepath) as file:
-            trainer_config = GPAtlasTrainerConfig(**(yaml.safe_load(file) or {}))
+    with open(trainer_config_filepath) as file:
+        trainer_config = GPAtlasTrainerConfig(**(yaml.safe_load(file) or {}))
 
     return model_config, trainer_config
 
@@ -120,6 +111,12 @@ def train_command(
     output_dirpath.mkdir(parents=True)
     for subdir in ["checkpoints", "plots", "predictions", "logs"]:
         (output_dirpath / subdir).mkdir(parents=True)
+
+    if model_config_filepath is None:
+        model_config_filepath = dataset_dirpath / "model-config.yaml"
+
+    if trainer_config_filepath is None:
+        trainer_config_filepath = dataset_dirpath / "train-config.yaml"
 
     model_config, trainer_config = load_configs(model_config_filepath, trainer_config_filepath)
 

@@ -54,6 +54,7 @@ exclude = ["envs*", "ignore*", "external*"]
 
 [tool.poetry.group.modal.dependencies]
 modal = "^0.74.12"
+python-dotenv = "^1.1.0"
 
 [tool.ruff]
 # The directories to consider when resolving first- vs. third-party imports.

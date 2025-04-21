@@ -11,6 +11,20 @@ from numpy.typing import NDArray
 from gpatlas.constants import EPS
 
 
+def find_package_root_dir() -> pathlib.Path | None:
+    """
+    Find the nearest package root directory.
+
+    If no package root is found, return `None`.
+    """
+    current_dir = pathlib.Path(__file__).parent
+    while not current_dir.joinpath("pyproject.toml").exists():
+        current_dir = current_dir.parent
+        if current_dir == pathlib.Path("/"):
+            return None
+    return current_dir
+
+
 def get_device(device_name: str | None = None) -> torch.device:
     """
     Get the PyTorch device to use for training.
