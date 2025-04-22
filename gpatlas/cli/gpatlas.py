@@ -108,9 +108,9 @@ def train_command(
             raise FileExistsError(f"Output directory {output_dirpath} already exists.")
 
     # Create the output directory structure.
-    output_dirpath.mkdir(parents=True)
+    output_dirpath.mkdir(parents=True, exist_ok=True)
     for subdir in ["checkpoints", "plots", "predictions", "logs"]:
-        (output_dirpath / subdir).mkdir(parents=True)
+        (output_dirpath / subdir).mkdir(parents=True, exist_ok=True)
 
     if model_config_filepath is None:
         model_config_filepath = dataset_dirpath / "model-config.yaml"
@@ -185,6 +185,10 @@ def evaluate_command(
     Note: the evaluation uses the final model checkpoint saved during training.
     """
 
+    # Create the output subdirectories used by the evaluation functions.
+    for subdir in ["plots", "predictions"]:
+        (output_dirpath / subdir).mkdir(parents=True, exist_ok=True)
+
     model_config, trainer_config = load_configs(
         model_config_filepath=output_dirpath / "model-config.yaml",
         trainer_config_filepath=output_dirpath / "train-config.yaml",
@@ -241,7 +245,10 @@ def evaluate_command(
         )
 
         if calculate_feature_importances:
-            print(f"Calculating feature importances for {len(test_loader)} samples...")
+            print(
+                f"Calculating feature importances for {len(test_loader)} samples "
+                f"using the {input_type} encoder..."
+            )
             feature_attributions = trainer.calculate_feature_importances(
                 loader=test_loader, input_type=input_type
             )
