@@ -28,9 +28,10 @@ image = (
     )
     .run_commands(
         "pip install poetry",
-        # Install dependencies in the system Python environment.
+        # Configure poetry to install dependencies in the system Python environment.
         "poetry config virtualenvs.create false",
     )
+    # Install dependencies in a separate command to optimize caching.
     .run_commands(
         "cd /app && poetry install --no-root",
     )
