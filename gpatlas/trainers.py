@@ -9,6 +9,7 @@ from captum.attr import FeatureAblation
 from matplotlib import pyplot as plt
 from numpy.typing import NDArray
 from pydantic import BaseModel
+from tqdm import tqdm
 
 from gpatlas.constants import EPS
 from gpatlas.models import GPAtlasModel
@@ -231,22 +232,26 @@ class GPAtlasTrainer:
         self.model.to(self.device)
         self.model.eval()
 
+        num_samples = len(loader.dataset)  # type: ignore
+
         all_true_phenotypes = np.zeros(
-            (len(loader), self.model.config.num_input_phenotypes),
+            (num_samples, self.model.config.num_input_phenotypes),
             dtype=np.float32,
         )
         all_decoded_phenotypes = np.zeros(
-            (len(loader), self.model.config.num_output_phenotypes),
+            (num_samples, self.model.config.num_output_phenotypes),
             dtype=np.float32,
         )
         all_embeddings = np.zeros(
-            (len(loader), self.model.config.latent_dim),
+            (num_samples, self.model.config.latent_dim),
             dtype=np.float32,
         )
 
-        for ind, (genotypes, phenotypes) in enumerate(loader):
+        start_idx = 0
+        for genotypes, phenotypes in loader:
             genotypes = genotypes.to(self.device)
             phenotypes = phenotypes.to(self.device)
+            batch_size = genotypes.shape[0]
 
             with torch.no_grad():
                 embeddings = (
@@ -256,9 +261,13 @@ class GPAtlasTrainer:
                 )
                 decoded_phenotypes = self.model.phenotype_decoder(embeddings)
 
-            all_true_phenotypes[ind] = phenotypes.detach().cpu().numpy()
-            all_decoded_phenotypes[ind] = decoded_phenotypes.detach().cpu().numpy()
-            all_embeddings[ind] = embeddings.detach().cpu().numpy()
+            end_idx = start_idx + batch_size
+
+            all_true_phenotypes[start_idx:end_idx, :] = phenotypes.detach().cpu().numpy()
+            all_decoded_phenotypes[start_idx:end_idx, :] = decoded_phenotypes.detach().cpu().numpy()
+            all_embeddings[start_idx:end_idx, :] = embeddings.detach().cpu().numpy()
+
+            start_idx = end_idx
 
         return (all_true_phenotypes, all_decoded_phenotypes, all_embeddings)
 
@@ -290,15 +299,22 @@ class GPAtlasTrainer:
 
         ablator = FeatureAblation(forward_func)
 
+        num_samples = len(loader.dataset)  # type: ignore
         num_input_features = self.model.config.num_loci * self.model.config.num_alleles
-        attributions = np.zeros((len(loader), num_input_features), dtype=np.float32)
+        attributions = np.zeros((num_samples, num_input_features), dtype=np.float32)
 
-        for ind, (genotypes, phenotypes) in enumerate(loader):
+        start_idx = 0
+        for genotypes, phenotypes in tqdm(loader, total=len(loader)):
             genotypes = genotypes.to(self.device)
             phenotypes = phenotypes.to(self.device)
+            batch_size = genotypes.shape[0]
+
             with torch.no_grad():
                 attribution = ablator.attribute(genotypes, additional_forward_args=phenotypes)
-            attributions[ind] = attribution.squeeze().detach().cpu().numpy()
+
+            end_idx = start_idx + batch_size
+            attributions[start_idx:end_idx, :] = attribution.squeeze().detach().cpu().numpy()
+            start_idx = end_idx
 
         return attributions
 
@@ -326,14 +342,21 @@ class GPAtlasTrainer:
 
         ablator = FeatureAblation(forward_func)
 
+        num_samples = len(loader.dataset)  # type: ignore
         num_input_features = self.model.config.num_input_phenotypes
-        attributions = np.zeros((len(loader), num_input_features), dtype=np.float32)
+        attributions = np.zeros((num_samples, num_input_features), dtype=np.float32)
 
-        for ind, (_, phenotypes) in enumerate(loader):
+        start_idx = 0
+        for _, phenotypes in tqdm(loader, total=len(loader)):
             phenotypes = phenotypes.to(self.device)
+            batch_size = phenotypes.shape[0]
+
             with torch.no_grad():
                 attribution = ablator.attribute(phenotypes, additional_forward_args=phenotypes)
-            attributions[ind] = attribution.squeeze().detach().cpu().numpy()
+
+            end_idx = start_idx + batch_size
+            attributions[start_idx:end_idx, :] = attribution.squeeze().detach().cpu().numpy()
+            start_idx = end_idx
 
         return attributions
 

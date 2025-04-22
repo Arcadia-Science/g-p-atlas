@@ -2,6 +2,7 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
+from gpatlas.datasets import GPAtlasDataset
 from gpatlas.models import GPAtlasModel, GPAtlasModelConfig
 from gpatlas.trainers import GPAtlasTrainer, GPAtlasTrainerConfig
 
@@ -34,7 +35,7 @@ def trainer(model: GPAtlasModel) -> GPAtlasTrainer:
     trainer_config = GPAtlasTrainerConfig(
         seed=42,
         num_epochs=2,
-        batch_size=3,
+        batch_size=4,
         learning_rate=0.01,
     )
     return GPAtlasTrainer(model=model, config=trainer_config)
@@ -85,10 +86,13 @@ def test_train(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
 def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
     """Test the phenotype prediction process."""
 
+    num_samples = len(train_dataloader.dataset)  # type: ignore
     trainer.train(train_dataloader)
 
     # Create a test dataloader with a single batch for prediction.
-    test_dataloader = DataLoader(train_dataloader.dataset, batch_size=1, shuffle=False)
+    test_dataloader = DataLoader(
+        train_dataloader.dataset, batch_size=trainer.config.batch_size, shuffle=False
+    )
 
     # Test prediction with phenotype encoder.
     true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
@@ -96,15 +100,9 @@ def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoade
     )
 
     # Check output shapes.
-    assert true_phenotypes.shape == (
-        len(test_dataloader),
-        trainer.model.config.num_input_phenotypes,
-    )
-    assert decoded_phenotypes.shape == (
-        len(test_dataloader),
-        trainer.model.config.num_output_phenotypes,
-    )
-    assert embeddings.shape == (len(test_dataloader), trainer.model.config.latent_dim)
+    assert true_phenotypes.shape == (num_samples, trainer.model.config.num_input_phenotypes)
+    assert decoded_phenotypes.shape == (num_samples, trainer.model.config.num_output_phenotypes)
+    assert embeddings.shape == (num_samples, trainer.model.config.latent_dim)
 
     # Test prediction with genotype encoder.
     true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
@@ -112,30 +110,26 @@ def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoade
     )
 
     # Check output shapes.
-    assert true_phenotypes.shape == (
-        len(test_dataloader),
-        trainer.model.config.num_input_phenotypes,
-    )
-    assert decoded_phenotypes.shape == (
-        len(test_dataloader),
-        trainer.model.config.num_output_phenotypes,
-    )
-    assert embeddings.shape == (len(test_dataloader), trainer.model.config.latent_dim)
+    assert true_phenotypes.shape == (num_samples, trainer.model.config.num_input_phenotypes)
+    assert decoded_phenotypes.shape == (num_samples, trainer.model.config.num_output_phenotypes)
+    assert embeddings.shape == (num_samples, trainer.model.config.latent_dim)
 
 
 def test_calculate_feature_importances(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
     """Test the feature importance calculation."""
 
+    num_samples = len(train_dataloader.dataset)  # type: ignore
     trainer.train(train_dataloader)
 
-    importances = trainer.calculate_feature_importances(train_dataloader, input_type="genotype")
+    test_dataloader = DataLoader(
+        train_dataloader.dataset, batch_size=trainer.config.batch_size, shuffle=False
+    )
+
+    importances = trainer.calculate_feature_importances(test_dataloader, input_type="genotype")
     assert importances.shape == (
-        len(train_dataloader),
+        num_samples,
         trainer.model.config.num_loci * trainer.model.config.num_alleles,
     )
 
-    importances = trainer.calculate_feature_importances(train_dataloader, input_type="phenotype")
-    assert importances.shape == (
-        len(train_dataloader),
-        trainer.model.config.num_input_phenotypes,
-    )
+    importances = trainer.calculate_feature_importances(test_dataloader, input_type="phenotype")
+    assert importances.shape == (num_samples, trainer.model.config.num_input_phenotypes)
