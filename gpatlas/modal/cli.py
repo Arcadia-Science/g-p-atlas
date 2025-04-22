@@ -8,6 +8,9 @@ from gpatlas.cli.gpatlas import evaluate_command, train_command
 from gpatlas.utils import find_package_root_dir
 
 GPU_NAME = "a10g"
+CPU_COUNT = 4
+MEMORY_MB = 1024 * 10
+TIMEOUT_SECONDS = 3600
 S3_BUCKET_NAME = "2025-kcc-gpatlas"
 VOLUME_PATH = pathlib.Path("/volume")
 
@@ -42,10 +45,10 @@ def app_function(**kwargs: Any):
     Create an `app.function` decorator with the given kwargs.
     """
     default_kwargs = {
-        "cpu": 4,
+        "cpu": CPU_COUNT,
         "gpu": GPU_NAME,
-        "memory": 1024 * 10,
-        "timeout": 3600,
+        "memory": MEMORY_MB,
+        "timeout": TIMEOUT_SECONDS,
     }
     default_kwargs.update(kwargs)
 
