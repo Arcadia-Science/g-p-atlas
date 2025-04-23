@@ -107,7 +107,7 @@ modal_train_command.params += train_command.params
 modal_evaluate_command.params += evaluate_command.params
 
 cli.add_command(modal_train_command, name="train")
-cli.add_command(modal_evaluate_command, name="evaluate")
+cli.add_command(modal_evaluate_command, name="eval")
 
 
 if __name__ == "__main__":

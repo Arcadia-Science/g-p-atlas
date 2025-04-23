@@ -140,7 +140,11 @@ def train_command(
     if hot_start_checkpoint_filepath is not None:
         model.load_from_checkpoint(hot_start_checkpoint_filepath)
 
-    trainer = GPAtlasTrainer(model=model, config=trainer_config)
+    trainer = GPAtlasTrainer(
+        model=model,
+        config=trainer_config,
+        checkpoint_filepath=output_dirpath / "checkpoints" / "best_model_checkpoint.pt",
+    )
 
     if detect_anomaly:
         with torch.autograd.set_detect_anomaly(True, check_nan=True):
@@ -149,11 +153,6 @@ def train_command(
         trainer.train(loader=train_loader)
 
     trainer.plot_training_losses(filepath=output_dirpath / "plots" / "training_losses.svg")
-
-    # TODO: save checkpoints at regular intervals during training.
-    model.save_to_checkpoint(
-        checkpoint_filepath=output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
-    )
 
 
 @click.command()
@@ -180,9 +179,7 @@ def evaluate_command(
     dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path, calculate_feature_importances: bool
 ):
     """
-    Evaluate a trained G-P Atlas model.
-
-    Note: the evaluation uses the final model checkpoint saved during training.
+    Evaluate a trained G-P Atlas model using the best model checkpoint saved during training.
     """
 
     # Create the output subdirectories used by the evaluation functions.
@@ -196,7 +193,7 @@ def evaluate_command(
 
     model = GPAtlasModel(config=model_config)
 
-    checkpoint_filepath = output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
+    checkpoint_filepath = output_dirpath / "checkpoints" / "best_model_checkpoint.pt"
     model.load_from_checkpoint(checkpoint_filepath)
     print(f"Loaded model from {checkpoint_filepath}")
 
@@ -263,7 +260,7 @@ def cli():
 
 
 cli.add_command(train_command, name="train")
-cli.add_command(evaluate_command, name="evaluate")
+cli.add_command(evaluate_command, name="eval")
 
 
 if __name__ == "__main__":

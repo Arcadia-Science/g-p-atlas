@@ -1,8 +1,9 @@
+import pathlib
+
 import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from gpatlas.datasets import GPAtlasDataset
 from gpatlas.models import GPAtlasModel, GPAtlasModelConfig
 from gpatlas.trainers import GPAtlasTrainer, GPAtlasTrainerConfig
 
@@ -28,17 +29,20 @@ def model() -> GPAtlasModel:
 
 
 @pytest.fixture
-def trainer(model: GPAtlasModel) -> GPAtlasTrainer:
+def trainer(tmp_path: pathlib.Path, model: GPAtlasModel) -> GPAtlasTrainer:
     """
     Create a trainer with a small number of epochs for fast testing.
     """
+    checkpoint_filepath = tmp_path / "best_model_checkpoint.pt"
     trainer_config = GPAtlasTrainerConfig(
         seed=42,
         num_epochs=2,
         batch_size=4,
         learning_rate=0.01,
     )
-    return GPAtlasTrainer(model=model, config=trainer_config)
+    return GPAtlasTrainer(
+        model=model, config=trainer_config, checkpoint_filepath=checkpoint_filepath
+    )
 
 
 @pytest.fixture
@@ -78,9 +82,9 @@ def test_train(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
         trainer.train(train_dataloader)
 
     # Check that training losses were recorded.
-    # There are 3 batches in the dataloader, and 2 epochs of training,
-    # so there should be 6 training losses.
-    assert len(trainer.genotype_encoder_training_losses) == 6
+    # There are 2 epochs of training, so there should be 2 training losses.
+    assert len(trainer.genotype_encoder_training_losses) == 2
+    assert len(trainer.phenotype_encoder_decoder_training_losses) == 2
 
 
 def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
