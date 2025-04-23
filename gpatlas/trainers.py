@@ -15,6 +15,8 @@ from gpatlas.constants import EPS
 from gpatlas.models import GPAtlasModel
 from gpatlas.utils import get_device
 
+SEPARATOR = " | "
+
 
 class GPAtlasTrainerConfig(BaseModel):
     """
@@ -130,9 +132,13 @@ class GPAtlasTrainer:
 
             elapsed_time = time.time() - epoch_start_time
             print(
-                f"Epoch: {epoch_idx}, "
-                f"Training loss: {training_losses[-1]}, "
-                f"Epoch duration: {elapsed_time}"
+                SEPARATOR.join(
+                    [
+                        f"Epoch: {epoch_idx}",
+                        f"Training loss: {training_losses[-1]:.2f}",
+                        f"Epoch duration: {elapsed_time:.2f}s",
+                    ]
+                )
             )
 
         self.phenotype_encoder_decoder_training_losses = training_losses
@@ -182,9 +188,13 @@ class GPAtlasTrainer:
 
             elapsed_time = time.time() - epoch_start_time
             print(
-                f"Epoch: {epoch_idx}, "
-                f"Training loss: {training_losses[-1]}, "
-                f"Epoch duration: {elapsed_time}"
+                SEPARATOR.join(
+                    [
+                        f"Epoch: {epoch_idx}",
+                        f"Training loss: {training_losses[-1]:.2f}",
+                        f"Epoch duration: {elapsed_time:.2f}s",
+                    ]
+                )
             )
 
         self.genotype_encoder_training_losses = training_losses
