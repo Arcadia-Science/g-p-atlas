@@ -25,7 +25,7 @@ class GPAtlasTrainerConfig(BaseModel):
 
     seed: int = 47
 
-    num_cores: int = 14  # this was originally `args.n_cpu`.
+    num_cores: int = 1  # this was originally `args.n_cpu`.
 
     # TODO: add early-stopping criteria.
     num_epochs: int = 100
