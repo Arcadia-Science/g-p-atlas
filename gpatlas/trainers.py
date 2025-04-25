@@ -47,7 +47,7 @@ class GPAtlasTrainerConfig(BaseModel):
         """
         The number of warmup epochs before the model starts saving checkpoints.
         """
-        return int(self.num_epochs / 3)
+        return int(self.num_epochs * 0.8)
 
 
 class GPAtlasTrainer:
@@ -220,15 +220,6 @@ class GPAtlasTrainer:
             training_losses.append(epoch_loss)
             epoch_elapsed_time = time.time() - epoch_start_time
 
-            if (
-                epoch_idx > self.config.num_warmup_epochs
-                and epoch_loss < best_loss
-                and self.checkpoint_filepath is not None
-            ):
-                best_loss = epoch_loss
-                self.model.save_to_checkpoint(checkpoint_filepath=self.checkpoint_filepath)
-                print(f"Saved new best model to {self.checkpoint_filepath}")
-
             print(
                 SEPARATOR.join(
                     [
@@ -238,6 +229,15 @@ class GPAtlasTrainer:
                     ]
                 )
             )
+
+            if (
+                epoch_idx > self.config.num_warmup_epochs
+                and epoch_loss < best_loss
+                and self.checkpoint_filepath is not None
+            ):
+                best_loss = epoch_loss
+                self.model.save_to_checkpoint(checkpoint_filepath=self.checkpoint_filepath)
+                print(f"Saved new best model to {self.checkpoint_filepath}")
 
         self.genotype_encoder_training_losses = training_losses
 
