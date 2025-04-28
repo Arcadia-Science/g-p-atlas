@@ -338,12 +338,13 @@ class GenotypePhenotypeSimulator:
         assert data.environmental_factors is not None
 
         params = self.params
-        phenotypes = np.zeros((params.num_samples, params.num_phenotypes))
+        genetic_components = np.zeros((params.num_samples, params.num_phenotypes))
+        environmental_components = np.zeros((params.num_samples, params.num_phenotypes))
 
         # Additive effects (including pleiotropic effects).
         for phenotype_ind in range(params.num_phenotypes):
             for locus_ind, effect_size in data.effect_sizes[phenotype_ind].items():
-                phenotypes[:, phenotype_ind] += data.genotypes[:, locus_ind] * effect_size
+                genetic_components[:, phenotype_ind] += data.genotypes[:, locus_ind] * effect_size
 
         # Epistatic effects.
         for phenotype_ind in range(params.num_phenotypes):
@@ -352,31 +353,71 @@ class GenotypePhenotypeSimulator:
                     interaction = (
                         data.genotypes[:, locus_ind1] * data.genotypes[:, locus_ind2] * effect_size
                     )
-                    phenotypes[:, phenotype_ind] += interaction
+                    genetic_components[:, phenotype_ind] += interaction
 
         # Environmental effects.
         for phenotype_ind in range(params.num_phenotypes):
             for env_factor_ind, effect_size in data.env_effects[phenotype_ind].items():
-                phenotypes[:, phenotype_ind] += (
+                environmental_components[:, phenotype_ind] += (
                     data.environmental_factors[:, env_factor_ind] * effect_size
                 )
 
-        # Scale genetic component to achieve target heritability.
+        # Scale genetic and environmental components to achieve target heritability.
+        phenotypes = np.zeros((params.num_samples, params.num_phenotypes))
         for phenotype_ind in range(params.num_phenotypes):
             if isinstance(params.heritability, list):
                 h2 = params.heritability[phenotype_ind]
             else:
                 h2 = params.heritability
 
-            genetic_var = np.var(phenotypes[:, phenotype_ind])
+            # Calculate genetic and environmental variances
+            genetic_var = np.var(genetic_components[:, phenotype_ind])
+            env_component_var = np.var(environmental_components[:, phenotype_ind])
 
-            if genetic_var > 0:
-                # Calculate required environmental variance to achieve target heritability.
-                env_var = genetic_var * (1 - h2) / h2
+            if genetic_var <= 0:
+                # No genetic variance, just use environmental component
+                phenotypes[:, phenotype_ind] = environmental_components[:, phenotype_ind]
+                continue
 
-                # Add random environmental noise.
-                env_noise = np.random.normal(0, np.sqrt(env_var), params.num_samples)
-                phenotypes[:, phenotype_ind] += env_noise
+            # Add random environmental noise to match desired heritability
+            env_noise = np.random.normal(0, 1, params.num_samples)
+            
+            # Calculate scalars to achieve target heritability
+            if h2 > 0 and h2 < 1:
+                # Scale genetic component to have variance h2
+                genetic_scalar = np.sqrt(h2 / genetic_var)
+                
+                # Calculate total environmental variance needed for (1-h2)
+                total_env_var_needed = (genetic_var * h2) * (1 - h2) / h2
+                
+                # Split between structured environmental effects and random noise
+                if env_component_var > 0:
+                    # Allocate half of environmental variance to structured effects and half to noise
+                    env_component_scalar = np.sqrt((total_env_var_needed/2) / env_component_var)
+                    noise_var = total_env_var_needed/2
+                else:
+                    # All environmental variance comes from noise
+                    env_component_scalar = 0
+                    noise_var = total_env_var_needed
+                
+                noise_scalar = np.sqrt(noise_var)
+            else:
+                # Edge cases (h2=0 or h2=1)
+                if h2 == 0:
+                    genetic_scalar = 0
+                    env_component_scalar = 1
+                    noise_scalar = 1
+                else:  # h2 == 1
+                    genetic_scalar = 1
+                    env_component_scalar = 0
+                    noise_scalar = 0
+            
+            # Combine components with proper scaling
+            phenotypes[:, phenotype_ind] = (
+                genetic_components[:, phenotype_ind] * genetic_scalar +
+                environmental_components[:, phenotype_ind] * env_component_scalar +
+                env_noise * noise_scalar
+            )
 
         return phenotypes
 
