@@ -27,8 +27,8 @@ class GPAtlasTrainerConfig(BaseModel):
 
     num_cores: int = 1  # this was originally `args.n_cpu`.
 
-    # TODO: add early-stopping criteria.
     num_epochs: int = 100
+    warmup_epoch_fraction: float = 0.8
 
     batch_size: int = 16
     learning_rate: float = 0.001  # This was originally `args.lr_r`.
@@ -47,7 +47,7 @@ class GPAtlasTrainerConfig(BaseModel):
         """
         The number of warmup epochs before the model starts saving checkpoints.
         """
-        return int(self.num_epochs * 0.8)
+        return int(self.num_epochs * self.warmup_epoch_fraction)
 
 
 class GPAtlasTrainer:

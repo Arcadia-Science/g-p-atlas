@@ -36,7 +36,8 @@ def trainer(tmp_path: pathlib.Path, model: GPAtlasModel) -> GPAtlasTrainer:
     checkpoint_filepath = tmp_path / "best_model_checkpoint.pt"
     trainer_config = GPAtlasTrainerConfig(
         seed=42,
-        num_epochs=2,
+        num_epochs=3,
+        warmup_epoch_fraction=0.5,
         batch_size=4,
         learning_rate=0.01,
     )
@@ -82,9 +83,9 @@ def test_train(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
         trainer.train(train_dataloader)
 
     # Check that training losses were recorded.
-    # There are 2 epochs of training, so there should be 2 training losses.
-    assert len(trainer.genotype_encoder_training_losses) == 2
-    assert len(trainer.phenotype_encoder_decoder_training_losses) == 2
+    # There are 3 epochs of training, so there should be 3 training losses.
+    assert len(trainer.genotype_encoder_training_losses) == 3
+    assert len(trainer.phenotype_encoder_decoder_training_losses) == 3
 
 
 def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
