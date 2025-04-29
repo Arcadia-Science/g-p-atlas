@@ -36,7 +36,13 @@ class SimulationParameters(BaseModel):
     num_phenotypes: int = 30
     num_causal_loci_per_phenotype: int = 10
 
+    # The probability that a causal locus is pleiotropic (that is, has an effect on two phenotypes).
+    # (This is not the same as the probability that a given pair of phenotypes
+    # shares a causal locus.)
     pleiotropy_probability: float = 0.2
+
+    # The probability that a pair of causal loci for a given phenotype are epistatic
+    # (that is, have an interaction effect on the phenotype).
     epistasis_probability: float = 0.2
 
     # Proportion of variance explained by genetic effects.
@@ -87,8 +93,8 @@ class SimulationData:
     effect_sizes: dict[int, dict[int, float]] = field(default_factory=dict)
 
     # A list of tuples of pleiotropic effects.
-    # Shape: (phenotype1, phenotype2, locus)
-    pleiotropic_effects: list[tuple[int, int, float]] = field(default_factory=list)
+    # Shape: (phenotype1, phenotype2, locus, effect_size)
+    pleiotropic_effects: list[tuple[int, int, int, float]] = field(default_factory=list)
 
     # A list of tuples of epistatic effects.
     # Shape: (phenotype, locus1, locus2, effect)
@@ -259,30 +265,41 @@ class GenotypePhenotypeSimulator:
 
     def _generate_pleiotropic_effects(
         self, causal_loci: dict[int, list[int]], effect_sizes: dict[int, dict[int, float]]
-    ) -> list[tuple[int, int, float]]:
+    ) -> list[tuple[int, int, int, float]]:
         """
-        Generate pleiotropic effects between phenotypes.
+        Generate pleiotropic effects between phenotypes by assigning a random subset
+        of all causal loci to have an effect on a second phenotype.
+
+        This function updates `effect_sizes` in place but does not update `causal_loci`
+        as this is used by other functions that expect the causal loci to be unmodified.
 
         Returns:
             pleiotropic_effects: list[tuple[int, int, float]]
                 A list of tuples of pleiotropic effects, where each tuple contains
                 the indices of the two phenotypes and the locus that is pleiotropic.
         """
-        pleiotropic_effects: list[tuple[int, int, float]] = []
         params = self.params
+        pleiotropic_effects: list[tuple[int, int, int, float]] = []
 
-        for phenotype_ind in range(params.num_phenotypes):
-            for other_phenotype_ind in range(phenotype_ind + 1, params.num_phenotypes):
-                for locus_ind in causal_loci[phenotype_ind]:
-                    if np.random.random() < params.pleiotropy_probability:
-                        if locus_ind not in causal_loci[other_phenotype_ind]:
-                            causal_loci[other_phenotype_ind].append(locus_ind)
-                            effect_sizes[other_phenotype_ind][locus_ind] = (
-                                self._generate_effect_size()
-                            )
-                            pleiotropic_effects.append(
-                                (phenotype_ind, other_phenotype_ind, locus_ind)
-                            )
+        causal_locus_to_phenotype = {
+            locus_ind: phenotype_ind
+            for phenotype_ind, locus_inds in causal_loci.items()
+            for locus_ind in locus_inds
+        }
+
+        all_causal_locus_inds = list(causal_locus_to_phenotype.keys())
+        all_phenotype_inds = set(causal_locus_to_phenotype.values())
+
+        for locus_ind in all_causal_locus_inds:
+            if np.random.random() < params.pleiotropy_probability:
+                phenotype_ind = causal_locus_to_phenotype[locus_ind]
+                second_phenotype_ind = np.random.choice(list(all_phenotype_inds - {phenotype_ind}))
+
+                effect_size = self._generate_effect_size()
+                effect_sizes[second_phenotype_ind][locus_ind] = effect_size
+                pleiotropic_effects.append(
+                    (phenotype_ind, second_phenotype_ind, locus_ind, effect_size)
+                )
 
         return pleiotropic_effects
 
@@ -290,12 +307,12 @@ class GenotypePhenotypeSimulator:
         self, causal_loci: dict[int, list[int]]
     ) -> list[tuple[int, int, int, float]]:
         """
-        Generate epistatic (gene-gene interaction) effects.
+        Generate epistatic (gene-gene interaction) effects between causal loci.
 
         Returns:
             epistatic_effects: list[tuple[int, int, int, float]]
                 A list of tuples of epistatic effects, where each tuple contains
-                the indices of the phenotype, the two loci, and the effect size.
+                the indices of the phenotype, the two loci, and the effect size of the interaction.
         """
         params = self.params
         epistatic_effects: list[tuple[int, int, int, float]] = []
@@ -418,7 +435,7 @@ class GenotypePhenotypeSimulator:
                         (total_env_var_needed * params.env_factors_weight) / env_var
                     )
                     env_noise_scale_factor = np.sqrt(
-                        (total_env_var_needed * (1 - params.env_factors_weight)) / env_var
+                        total_env_var_needed * (1 - params.env_factors_weight)
                     )
                 else:
                     # All environmental variance comes from random noise.
@@ -455,8 +472,7 @@ class GenotypePhenotypeSimulator:
 @click.command()
 @click.option("--output-dirpath", type=click.Path(path_type=Path), required=True)
 @click.option("--config-filepath", type=click.Path(exists=True, path_type=Path), required=True)
-@click.option("--split-train-test", type=bool, default=False)
-def run_simulation(output_dirpath: Path, config_filepath: Path, split_train_test: bool):
+def run_simulation(output_dirpath: Path, config_filepath: Path):
     """
     Run a simulation and save the results to a file.
     """
