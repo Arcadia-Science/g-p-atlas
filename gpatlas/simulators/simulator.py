@@ -20,6 +20,8 @@ import yaml
 from numpy.typing import NDArray
 from pydantic import BaseModel
 
+EPS = 1e-6
+
 
 class SimulationParameters(BaseModel):
     """Parameters defining a genotype-phenotype simulation."""
@@ -34,11 +36,11 @@ class SimulationParameters(BaseModel):
     num_phenotypes: int = 30
     num_causal_loci_per_phenotype: int = 10
 
-    # Proportion of variance explained by genetics.
-    heritability: float | list[float] = 0.6
-
     pleiotropy_probability: float = 0.2
     epistasis_probability: float = 0.2
+
+    # Proportion of variance explained by genetic effects.
+    broad_sense_heritability: float | list[float] = 0.6
 
     # The parameters of the effect size distribution.
     effect_size_distribution: Literal["normal", "exponential", "gamma"] = "normal"
@@ -46,11 +48,14 @@ class SimulationParameters(BaseModel):
     effect_size_std: float = 1.0
 
     # Environmental factors. There must be at least one environmental factor.
-    # (set env_factor_weight to 0 to disable environmental effects)
-    env_factor_weight: float = 0.5
+    # To disable environmental effects, set `env_factor_weight` to 0.0.
     num_environmental_factors: int = 1
     env_influence_probability: float = 0.2
     env_effect_size_range: tuple[float, float] = (0.0, 1.0)
+
+    # Proportion of environmental variance allocated to environmental factors vs. random noise.
+    # (0.0 = all random noise, 1.0 = all environmental factors).
+    env_factors_weight: float = 0.0
 
 
 @dataclass
@@ -299,12 +304,17 @@ class GenotypePhenotypeSimulator:
         return epistatic_effects
 
     def _generate_environmental_factors(self) -> NDArray[np.float64]:
-        """Generate environmental factors for all samples."""
+        """
+        Generate environmental factors for all samples.
+
+        Returns:
+            env_factors: NDArray[np.float64]
+                An array of environmental factors of shape (num_samples, num_environmental_factors).
+        """
 
         env_factors = np.random.normal(
             0, 1, (self.params.num_samples, self.params.num_environmental_factors)
         )
-        env_factors *= np.float64(self.params.env_factor_weight)
         return env_factors
 
     def _generate_environmental_effects(self) -> dict[int, dict[int, float]]:
@@ -338,6 +348,8 @@ class GenotypePhenotypeSimulator:
         assert data.environmental_factors is not None
 
         params = self.params
+
+        # The genetic and environmental components of the phenotypes.
         genetic_components = np.zeros((params.num_samples, params.num_phenotypes))
         environmental_components = np.zeros((params.num_samples, params.num_phenotypes))
 
@@ -362,61 +374,70 @@ class GenotypePhenotypeSimulator:
                     data.environmental_factors[:, env_factor_ind] * effect_size
                 )
 
-        # Scale genetic and environmental components to achieve target heritability.
+        # Random environmental noise for each phenotype.
+        random_env_noise = np.random.normal(0, 1, (params.num_samples, params.num_phenotypes))
+
+        # Scale the genetic and environmental components to achieve the desired heritability.
         phenotypes = np.zeros((params.num_samples, params.num_phenotypes))
+        heritability: float
         for phenotype_ind in range(params.num_phenotypes):
-            if isinstance(params.heritability, list):
-                h2 = params.heritability[phenotype_ind]
+            if isinstance(params.broad_sense_heritability, list):
+                heritability = params.broad_sense_heritability[phenotype_ind]
             else:
-                h2 = params.heritability
+                heritability = params.broad_sense_heritability
 
-            # Calculate genetic and environmental variances
+            # Calculate the variances of the genetic and environmental components.
             genetic_var = np.var(genetic_components[:, phenotype_ind])
-            env_component_var = np.var(environmental_components[:, phenotype_ind])
+            env_var = np.var(environmental_components[:, phenotype_ind])
 
-            if genetic_var <= 0:
+            if genetic_var <= EPS:
                 # No genetic variance, just use environmental component
                 phenotypes[:, phenotype_ind] = environmental_components[:, phenotype_ind]
                 continue
 
-            # Add random environmental noise to match desired heritability
-            env_noise = np.random.normal(0, 1, params.num_samples)
-            
-            # Calculate scalars to achieve target heritability
-            if h2 > 0 and h2 < 1:
-                # Scale genetic component to have variance h2
-                genetic_scalar = np.sqrt(h2 / genetic_var)
-                
-                # Calculate total environmental variance needed for (1-h2)
-                total_env_var_needed = (genetic_var * h2) * (1 - h2) / h2
-                
-                # Split between structured environmental effects and random noise
-                if env_component_var > 0:
-                    # Allocate half of environmental variance to structured effects and half to noise
-                    env_component_scalar = np.sqrt((total_env_var_needed/2) / env_component_var)
-                    noise_var = total_env_var_needed/2
+            # Calculate scale factors to achieve target heritability.
+            if heritability > 0 and heritability < 1:
+                # Scale genetic component to have variance equal to `heritability`.
+                genetic_scale_factor = np.sqrt(heritability / genetic_var)
+
+                # Calculate total environmental variance needed.
+                total_env_var_needed = genetic_var * (1 - heritability)
+
+                # Split the environmental variance between structured effects and random noise.
+                if env_var > EPS:
+                    env_component_scale_factor = np.sqrt(
+                        (total_env_var_needed * params.env_factors_weight) / env_var
+                    )
+                    env_noise_scale_factor = np.sqrt(
+                        (total_env_var_needed * (1 - params.env_factors_weight)) / env_var
+                    )
                 else:
-                    # All environmental variance comes from noise
-                    env_component_scalar = 0
-                    noise_var = total_env_var_needed
-                
-                noise_scalar = np.sqrt(noise_var)
+                    # All environmental variance comes from random noise.
+                    env_component_scale_factor = 0
+                    env_noise_scale_factor = np.sqrt(total_env_var_needed)
+
+            elif heritability == 0:
+                # All variance is environmental.
+                genetic_scale_factor = 0
+                if env_var > EPS:
+                    env_component_scale_factor = np.sqrt(params.env_factors_weight / env_var)
+                    env_noise_scale_factor = np.sqrt(1 - params.env_factors_weight)
+                else:
+                    env_component_scale_factor = 0
+                    env_noise_scale_factor = 1
+            elif heritability == 1:
+                # All variance is genetic.
+                genetic_scale_factor = 1
+                env_component_scale_factor = 0
+                env_noise_scale_factor = 0
             else:
-                # Edge cases (h2=0 or h2=1)
-                if h2 == 0:
-                    genetic_scalar = 0
-                    env_component_scalar = 1
-                    noise_scalar = 1
-                else:  # h2 == 1
-                    genetic_scalar = 1
-                    env_component_scalar = 0
-                    noise_scalar = 0
-            
-            # Combine components with proper scaling
+                raise ValueError(f"Invalid value for broad sense heritability: {heritability}")
+
+            # Combine all components.
             phenotypes[:, phenotype_ind] = (
-                genetic_components[:, phenotype_ind] * genetic_scalar +
-                environmental_components[:, phenotype_ind] * env_component_scalar +
-                env_noise * noise_scalar
+                genetic_components[:, phenotype_ind] * genetic_scale_factor
+                + environmental_components[:, phenotype_ind] * env_component_scale_factor
+                + random_env_noise[:, phenotype_ind] * env_noise_scale_factor
             )
 
         return phenotypes
