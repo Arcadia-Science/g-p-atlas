@@ -40,6 +40,7 @@ class SimulationParameters(BaseModel):
     epistasis_probability: float = 0.2
 
     # Proportion of variance explained by genetic effects.
+    # To disable all environmental effects and environmental noise, set to 1.0.
     broad_sense_heritability: float | list[float] = 0.6
 
     # The parameters of the effect size distribution.
@@ -48,14 +49,13 @@ class SimulationParameters(BaseModel):
     effect_size_std: float = 1.0
 
     # Environmental factors. There must be at least one environmental factor.
-    # To disable environmental effects, set `env_factor_weight` to 0.0.
+    # To disable environmental effects (leaving only random noise), set `env_factors_weight` to 0.0.
     num_environmental_factors: int = 1
     env_influence_probability: float = 0.2
-    env_effect_size_range: tuple[float, float] = (0.0, 1.0)
 
     # Proportion of environmental variance allocated to environmental factors vs. random noise.
     # (0.0 = all random noise, 1.0 = all environmental factors).
-    env_factors_weight: float = 0.0
+    env_factors_weight: float = 0.5
 
 
 @dataclass
@@ -130,9 +130,12 @@ class SimulationData:
                 file.create_dataset("genotypes", data=minor_allele_presence_one_hot[inds])
                 file.create_dataset("phenotypes", data=self.phenotypes[inds])
 
+        print(f"One-hot encoded genotypes shape: {minor_allele_presence_one_hot.shape}")
+        print(f"Phenotypes shape: {self.phenotypes.shape}")
+
 
 class GenotypePhenotypeSimulator:
-    """Class for simulating genotype-phenotype relationships."""
+    """Class for simulating genotypes and phenotypes."""
 
     def __init__(self, params: SimulationParameters):
         """Initialize the simulator with parameters."""
@@ -227,6 +230,12 @@ class GenotypePhenotypeSimulator:
 
         unselected_loci = set(np.arange(params.num_loci))
         for phenotype_ind in range(params.num_phenotypes):
+            if len(unselected_loci) < params.num_causal_loci_per_phenotype:
+                raise ValueError(
+                    f"Not enough loci to select {params.num_causal_loci_per_phenotype} causal loci "
+                    "for all phenotypes."
+                )
+
             # Select causal loci without replacement.
             phenotype_causal_loci = np.random.choice(
                 list(unselected_loci), size=params.num_causal_loci_per_phenotype, replace=False
@@ -237,7 +246,7 @@ class GenotypePhenotypeSimulator:
 
             causal_loci[phenotype_ind] = list(phenotype_causal_loci)
 
-            # Assign effect sizes based on specified distribution
+            # Assign effect sizes based on specified distribution.
             effects = [
                 self._generate_effect_size() for _ in range(params.num_causal_loci_per_phenotype)
             ]
@@ -334,7 +343,7 @@ class GenotypePhenotypeSimulator:
 
             for env_factor_ind in range(params.num_environmental_factors):
                 if np.random.random() < params.env_influence_probability:
-                    effect_size = np.random.uniform(*params.env_effect_size_range)
+                    effect_size = self._generate_effect_size()
                     phenotype_env_effects[env_factor_ind] = effect_size
 
             env_effects[phenotype_ind] = phenotype_env_effects
