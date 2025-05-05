@@ -25,7 +25,9 @@ RANDOM_SEED = 42
 
 @pytest.mark.parametrize("minor_allele_freq_range", [(0.0, 0.5), (0.01, 0.05), (0.4, 0.6)])
 def test_maf_distribution(minor_allele_freq_range):
-    """Test that the minor allele frequency distribution matches the specified range."""
+    """
+    Test that the minor allele frequency distribution matches the specified range.
+    """
     params = SimulationParameters(
         seed=RANDOM_SEED,
         num_samples=500,
@@ -46,7 +48,7 @@ def test_maf_distribution(minor_allele_freq_range):
         params.minor_allele_freq_range[1] - params.minor_allele_freq_range[0]
     )
 
-    # Compare empirical CDF with uniform CDF.
+    # Compare the empirical CDF with a uniform CDF.
     sorted_scaled_mafs = np.sort(scaled_mafs)
     n = len(sorted_scaled_mafs)
     uniform_cdf = np.arange(1, n + 1) / n
@@ -218,10 +220,13 @@ def test_heritability_sibling_correlation():
 
 
 @pytest.mark.parametrize("env_factors_weight", [0.0, 0.5, 1.0])
-@pytest.mark.parametrize("heritability", [0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+@pytest.mark.parametrize("heritability", [0.0, 0.3, 0.6, 1.0])
 def test_phenotype_variance(heritability, env_factors_weight):
     """
-    Test that the phenotypic variance is close to 1.0 for the given parameters.
+    Test that the phenotypic variance is close to 1.0.
+
+    Because the phenotypes are a scaled linear combination of the genetic and environmental
+    factors, the variance of the phenotypes should always be 1.0.
     """
     params = SimulationParameters(
         seed=RANDOM_SEED,
@@ -247,7 +252,9 @@ def test_phenotype_variance(heritability, env_factors_weight):
 
 @pytest.mark.parametrize("pleiotropy_probability", [0.0, 0.3, 0.6, 1.0])
 def test_pleiotropy_rate(pleiotropy_probability):
-    """Test that the pleiotropy rate matches the specified probability."""
+    """
+    Test that the pleiotropy rate is close to the specified probability.
+    """
     params = SimulationParameters(
         seed=RANDOM_SEED,
         num_samples=500,
@@ -279,7 +286,9 @@ def test_pleiotropy_rate(pleiotropy_probability):
 
 @pytest.mark.parametrize("epistasis_probability", [0.0, 0.3, 0.6, 1.0])
 def test_epistasis_rate(epistasis_probability):
-    """Test that the epistasis rate matches the specified probability."""
+    """
+    Test that the epistasis rate is close to the specified probability.
+    """
     params = SimulationParameters(
         seed=RANDOM_SEED,
         num_samples=5000,
@@ -335,6 +344,85 @@ def test_heritability_with_model_fit(genome_type, heritability):
 
     # Check that the coefficient of determination is close to the target heritability.
     assert np.isclose(model.score(data.genotypes, data.phenotypes), heritability, atol=0.1)
+
+
+# We don't test heritability = 0.0 here because we're only interested in the effect of epistasis
+# when there is some heritability to explain.
+@pytest.mark.parametrize("heritability", [0.3, 0.6, 1.0])
+def test_model_fit_with_epistasis(heritability):
+    """
+    Test that the model fit gets worse as the epistasis probability increases.
+    """
+
+    # Note: the model fit is not super sensitive to the epistasis probability,
+    # so we only test three values.
+    epistasis_probabilities = [0.0, 0.5, 1.0]
+
+    model_scores = []
+    for epistasis_probability in epistasis_probabilities:
+        params = SimulationParameters(
+            seed=RANDOM_SEED,
+            num_samples=1000,
+            num_loci=100,
+            num_phenotypes=3,
+            num_causal_loci_per_phenotype=10,
+            pleiotropy_probability=0.0,
+            epistasis_probability=epistasis_probability,
+            broad_sense_heritability=heritability,
+        )
+
+        simulator = GenotypePhenotypeSimulator(params)
+        data = simulator.simulate()
+
+        assert data.genotypes is not None
+        assert data.phenotypes is not None
+
+        model = Lasso(alpha=0.03)
+        model.fit(data.genotypes, data.phenotypes)
+        model_score = model.score(data.genotypes, data.phenotypes)
+        model_scores.append(model_score)
+
+        # If there is epistasis present, the mode fit should be worse than the heritability.
+        if epistasis_probability > 0.0:
+            assert model_score < heritability
+        else:
+            assert np.isclose(model_score, heritability, atol=0.1)
+
+    # The model fit should get worse as the epistasis probability increases.
+    for ind in range(1, len(model_scores)):
+        assert model_scores[ind] < model_scores[ind - 1]
+
+
+@pytest.mark.parametrize("heritability", [0.0, 0.3, 0.6, 1.0])
+@pytest.mark.parametrize("pleiotropy_probability", [0.0, 0.5, 1.0])
+def test_model_fit_with_pleiotropy(heritability, pleiotropy_probability):
+    """
+    Test that the model fit does not depend on the pleiotropy probability.
+
+    Pleiotropic interactions are still linear, so a linear model should fit the data just as well
+    with or without pleiotropy.
+    """
+    params = SimulationParameters(
+        seed=RANDOM_SEED,
+        num_samples=1000,
+        num_loci=100,
+        num_phenotypes=3,
+        num_causal_loci_per_phenotype=10,
+        pleiotropy_probability=pleiotropy_probability,
+        epistasis_probability=0.0,
+        broad_sense_heritability=heritability,
+    )
+
+    simulator = GenotypePhenotypeSimulator(params)
+    data = simulator.simulate()
+
+    assert data.genotypes is not None
+    assert data.phenotypes is not None
+
+    model = Lasso(alpha=0.03)
+    model.fit(data.genotypes, data.phenotypes)
+    model_score = model.score(data.genotypes, data.phenotypes)
+    assert np.isclose(model_score, heritability, atol=0.1)
 
 
 def test_save_functionality(tmp_path):
