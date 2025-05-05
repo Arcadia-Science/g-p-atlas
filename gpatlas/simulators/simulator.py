@@ -72,84 +72,105 @@ class SimulationData:
     params: SimulationParameters
 
     # Genotypes as an array of alternate/minor allele counts at each locus in each sample.
-    # Shape: (num_samples, num_loci).
+    # Shape: `(num_samples, num_loci)`
     genotypes: NDArray[np.int_] | None = field(default=None, repr=False)
 
     # Minor allele frequencies at each locus.
-    # Shape: (num_loci,).
+    # Shape: `(num_loci,)`
     allele_frequencies: NDArray[np.float64] | None = field(default=None, repr=False)
 
     # Phenotypes as an array of phenotype values for each sample.
-    # Shape: (num_samples, num_phenotypes).
+    # Shape: `(num_samples, num_phenotypes)`
     phenotypes: NDArray[np.float64] | None = field(default=None, repr=False)
 
     # Environmental factors.
-    # Shape: (num_samples, num_environmental_factors).
+    # Shape: `(num_samples, num_environmental_factors)`
     environmental_factors: NDArray[np.float64] | None = field(default=None, repr=False)
 
     # A dict of lists of causal loci for each phenotype.
-    # Shape: {phenotype_ind: [locus_ind]}
+    # Shape: `{phenotype_ind: [locus_ind]}`
     causal_loci: dict[int, list[int]] = field(default_factory=dict)
 
     # A dict of dicts of effect sizes for each phenotype and locus.
-    # Shape: {phenotype_ind: {locus_ind: effect_size}}
+    # Shape: `{phenotype_ind: {locus_ind: effect_size}}`
     effect_sizes: dict[int, dict[int, float]] = field(default_factory=dict)
 
     # A list of tuples of pleiotropic effects.
-    # Shape: [(phenotype1, phenotype2, locus, effect_size)]
+    # Shape: `[(phenotype1, phenotype2, locus, effect_size)]`
     pleiotropic_effects: list[tuple[int, int, int, float]] = field(default_factory=list)
 
     # A list of tuples of epistatic effects.
-    # Shape: [(phenotype, locus1, locus2, effect_size)]
+    # Shape: `[(phenotype, locus1, locus2, effect_size)]`
     epistatic_effects: list[tuple[int, int, int, float]] = field(default_factory=list)
 
     # A dict of dicts of environmental effects for each phenotype and environmental factor.
-    # Shape: {phenotype_ind: {env_factor_ind: effect_size}}
+    # Shape: `{phenotype_ind: {env_factor_ind: effect_size}}`
     environmental_effects: dict[int, dict[int, float]] = field(default_factory=dict)
 
     # Random environmental noise for each sample and phenotype.
-    # Shape: (num_samples, num_phenotypes).
+    # Shape: `(num_samples, num_phenotypes)`
     environmental_noise: NDArray[np.float64] | None = field(default=None, repr=False)
 
-    def split_train_test(self) -> tuple[SimulationData, SimulationData]:
+    def split_into_train_test(
+        self, train_frac: float = 0.8
+    ) -> tuple[SimulationData, SimulationData]:
         """
-        Split the data into training and test sets.
+        Split the phenotypes and genotypes into training and test sets.
         """
-        raise NotImplementedError("Not implemented yet.")
+        assert self.genotypes is not None
+        assert self.phenotypes is not None
 
-    def save(self, dirpath: str | Path) -> None:
+        inds = np.arange(self.phenotypes.shape[0])
+        np.random.shuffle(inds)
+
+        num_training_samples = int(self.phenotypes.shape[0] * train_frac)
+        train_inds = inds[:num_training_samples]
+        test_inds = inds[num_training_samples:]
+
+        train_data = SimulationData(
+            params=self.params,
+            genotypes=self.genotypes[train_inds],
+            phenotypes=self.phenotypes[train_inds],
+        )
+
+        test_data = SimulationData(
+            params=self.params,
+            genotypes=self.genotypes[test_inds],
+            phenotypes=self.phenotypes[test_inds],
+        )
+
+        return train_data, test_data
+
+    def one_hot_encode_genotypes(self, genotypes: NDArray[np.int_]) -> NDArray[np.int_]:
+        """
+        One-hot encode the minor allele counts in the `genotypes` array.
+        """
+        num_alleles = 2 if self.params.genome_type == "diploid" else 1
+        return np.eye(num_alleles, dtype=np.int_)[genotypes.astype(np.int_)]
+
+    def save(self, dirpath: str | Path, one_hot_encode_genotypes: bool = True) -> None:
         """
         Save the simulated genotype and phenotype data as a pair of training and test datasets.
 
         TODO: handle the non-array data (e.g. causal loci, effect sizes, pleiotropic effects, etc).
-        TODO: move the train/test split to a separate function.
-        TODO: handle conversion to one-hot encoding properly (allele counts are lost).
         """
         dirpath = Path(dirpath)
         assert self.genotypes is not None
         assert self.phenotypes is not None
 
-        # One-hot encode the genotypes.
-        minor_allele_presence = self.genotypes > 0
-        minor_allele_presence_one_hot = np.eye(2)[minor_allele_presence.astype(np.int_)]
+        train_data, test_data = self.split_into_train_test()
+        for name, dataset in [("train", train_data), ("test", test_data)]:
+            genotypes = dataset.genotypes
+            assert genotypes is not None
+            if one_hot_encode_genotypes:
+                genotypes = self.one_hot_encode_genotypes(genotypes)
 
-        inds = np.arange(self.phenotypes.shape[0])
-        np.random.shuffle(inds)
-
-        num_training_samples = int(self.phenotypes.shape[0] * 0.8)
-        train_inds = inds[:num_training_samples]
-        test_inds = inds[num_training_samples:]
-
-        for split, inds in [("train", train_inds), ("test", test_inds)]:
-            with h5py.File(dirpath / f"{split}-data.h5", "w") as file:
-                file.create_dataset("genotypes", data=minor_allele_presence_one_hot[inds])
-                file.create_dataset("phenotypes", data=self.phenotypes[inds])
+            with h5py.File(dirpath / f"{name}-data.h5", "w") as file:
+                file.create_dataset("genotypes", data=genotypes)
+                file.create_dataset("phenotypes", data=dataset.phenotypes)
 
         with open(dirpath / "params.yaml", "w") as file:
             yaml.safe_dump(self.params.model_dump(), file)
-
-        print(f"One-hot encoded genotypes shape: {minor_allele_presence_one_hot.shape}")
-        print(f"Phenotypes shape: {self.phenotypes.shape}")
 
 
 class GenotypePhenotypeSimulator:
