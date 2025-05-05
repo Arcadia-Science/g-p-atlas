@@ -9,7 +9,9 @@ This module implements a simulator for genotype-phenotype relationships with sup
 """
 
 from __future__ import annotations
+import json
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -154,19 +156,55 @@ class SimulationData(BaseModel):
             raise ValueError("Genotypes and phenotypes must be populated before saving")
 
         with h5py.File(filepath, "w") as file:
-            for attr in self.__dict__:
-                if one_hot_encode_genotypes and attr == "genotypes":
-                    file.create_dataset(attr, data=self.one_hot_encode_genotypes(self.genotypes))
-                else:
-                    file.create_dataset(attr, data=getattr(self, attr))
+            arrays_group = file.create_group("arrays")
+            metadata_group = file.create_group("metadata")
 
-    def save_train_test(self, dirpath: str | Path, one_hot_encode_genotypes: bool = True) -> None:
+            numpy_array_attrs = [
+                "genotypes",
+                "allele_frequencies",
+                "phenotypes",
+                "environmental_factors",
+                "environmental_noise",
+            ]
+            for attr_name in numpy_array_attrs:
+                data = getattr(self, attr_name)
+                if attr_name == "genotypes" and one_hot_encode_genotypes:
+                    arrays_group.create_dataset(attr_name, data=self.one_hot_encode_genotypes(data))
+                else:
+                    arrays_group.create_dataset(attr_name, data=data)
+
+            json_like_attrs = [
+                "causal_loci",
+                "effect_sizes",
+                "environmental_effects",
+                "pleiotropic_effects",
+                "epistatic_effects",
+            ]
+            for attr_name in json_like_attrs:
+                metadata_group.create_dataset(
+                    attr_name, data=json.dumps(getattr(self, attr_name), default=lambda x: str(x))
+                )
+
+            metadata_group.create_dataset("params", data=json.dumps(self.params.model_dump()))
+
+            file.attrs["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def save_train_test(
+        self,
+        dirpath: str | Path,
+        one_hot_encode_genotypes: bool = True,
+        train_test_split: float = 0.8,
+        seed: int = 42,
+    ) -> None:
         """
         Save the simulated genotype and phenotype data as a pair of training and test datasets.
         """
         dirpath = Path(dirpath)
+        dirpath.mkdir(parents=True, exist_ok=True)
 
-        train_data, test_data = self.split_into_train_test(train_test_split=0.8, seed=42)
+        train_data, test_data = self.split_into_train_test(
+            train_test_split=train_test_split, seed=seed
+        )
 
         for name, dataset in [("train", train_data), ("test", test_data)]:
             dataset.to_hdf5(dirpath / f"{name}-data.h5", one_hot_encode_genotypes)

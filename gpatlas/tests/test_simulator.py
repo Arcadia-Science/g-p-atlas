@@ -8,8 +8,10 @@ These tests verify statistical properties of simulated datasets, including:
 - Environmental effects
 """
 
+import json
 from collections import defaultdict
 
+import h5py
 import numpy as np
 import pytest
 from sklearn.linear_model import Lasso
@@ -59,7 +61,8 @@ def test_maf_distribution(minor_allele_freq_range):
     assert max_diff < critical_value
 
 
-def test_genotype_distribution():
+@pytest.mark.parametrize("genome_type, num_alleles", [("haploid", 2), ("diploid", 3)])
+def test_genotype_distribution(genome_type, num_alleles):
     """
     Test that the genotype distribution matches expected frequencies for both diploid and haploid.
     """
@@ -69,29 +72,14 @@ def test_genotype_distribution():
         num_samples=1000,
         num_loci=100,
         num_phenotypes=3,
-        genome_type="diploid",
+        genome_type=genome_type,
     )
 
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
 
-    assert data.genotypes is not None
-
-    # Check range of values (should be 0, 1, or 2 for diploid)
     unique_values = np.unique(data.genotypes)
-    assert set(unique_values).issubset({0, 1, 2})
-
-    # Test haploid genotypes
-    params = params.model_copy(update={"genome_type": "haploid"})
-
-    simulator = GenotypePhenotypeSimulator(params)
-    data = simulator.simulate()
-
-    assert data.genotypes is not None
-
-    # Check range of values (should be 0 or 1 for haploid)
-    unique_values = np.unique(data.genotypes)
-    assert set(unique_values).issubset({0, 1})
+    assert set(unique_values).issubset(range(num_alleles))
 
 
 @pytest.mark.parametrize("effect_size_distribution", ["normal", "exponential", "gamma"])
@@ -163,9 +151,6 @@ def test_heritability_sibling_correlation():
         params.broad_sense_heritability = heritability
         simulator = GenotypePhenotypeSimulator(params)
         sibling_1_data = simulator.simulate()
-
-        assert sibling_1_data.genotypes is not None
-        assert sibling_1_data.phenotypes is not None
 
         # For each phenotype, calculate sibling correlation.
         for phenotype_idx in range(params.num_phenotypes):
@@ -243,7 +228,6 @@ def test_phenotype_variance(heritability, env_factors_weight):
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
 
-    assert data.phenotypes is not None
     phenotype_variances = np.var(data.phenotypes, axis=0)
 
     # The tolerance was chosen empirically.
@@ -334,9 +318,6 @@ def test_heritability_with_model_fit(genome_type, heritability):
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
 
-    assert data.genotypes is not None
-    assert data.phenotypes is not None
-
     # Fit a linear model to the data.
     # The value of `alpha` was chosen empirically to ensure the model is not too strict.
     model = Lasso(alpha=0.03)
@@ -373,9 +354,6 @@ def test_model_fit_with_epistasis(heritability):
 
         simulator = GenotypePhenotypeSimulator(params)
         data = simulator.simulate()
-
-        assert data.genotypes is not None
-        assert data.phenotypes is not None
 
         model = Lasso(alpha=0.03)
         model.fit(data.genotypes, data.phenotypes)
@@ -416,27 +394,31 @@ def test_model_fit_with_pleiotropy(heritability, pleiotropy_probability):
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
 
-    assert data.genotypes is not None
-    assert data.phenotypes is not None
-
     model = Lasso(alpha=0.03)
     model.fit(data.genotypes, data.phenotypes)
     model_score = model.score(data.genotypes, data.phenotypes)
     assert np.isclose(model_score, heritability, atol=0.1)
 
 
-def test_save_functionality(tmp_path):
-    """Test that the save functionality works as expected."""
+def test_data_to_hdf5(tmp_path):
+    num_samples = 100
+    num_loci = 50
+    num_phenotypes = 3
+
     params = SimulationParameters(
         seed=RANDOM_SEED,
-        num_samples=100,
-        num_loci=50,
-        num_phenotypes=3,
+        num_samples=num_samples,
+        num_loci=num_loci,
+        num_phenotypes=num_phenotypes,
     )
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
-    data.save(tmp_path)
+    data.to_hdf5(tmp_path / "data.h5", one_hot_encode_genotypes=False)
 
-    assert (tmp_path / "train-data.h5").exists()
-    assert (tmp_path / "test-data.h5").exists()
-    assert (tmp_path / "params.yaml").exists()
+    with h5py.File(tmp_path / "data.h5", "r") as file:
+        expected_params = json.loads(json.dumps(params.model_dump()))
+        observed_params = json.loads(file["metadata/params"][...].item().decode())  # type: ignore
+        assert observed_params == expected_params
+
+        assert file["arrays/genotypes"].shape == (num_samples, num_loci)  # type: ignore
+        assert file["arrays/phenotypes"].shape == (num_samples, num_phenotypes)  # type: ignore
