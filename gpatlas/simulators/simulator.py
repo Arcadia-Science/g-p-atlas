@@ -10,7 +10,6 @@ This module implements a simulator for genotype-phenotype relationships with sup
 
 from __future__ import annotations
 from collections import defaultdict
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -19,13 +18,15 @@ import h5py
 import numpy as np
 import yaml
 from numpy.typing import NDArray
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 EPS = 1e-6
 
 
 class SimulationParameters(BaseModel):
     """Parameters defining a genotype-phenotype simulation."""
+
+    model_config = ConfigDict()
 
     seed: int = 42
 
@@ -65,79 +66,76 @@ class SimulationParameters(BaseModel):
     env_factors_weight: float = 0.5
 
 
-@dataclass
-class SimulationData:
+class SimulationData(BaseModel):
     """Container for simulation input and output data."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     params: SimulationParameters
 
     # Genotypes as an array of alternate/minor allele counts at each locus in each sample.
     # Shape: `(num_samples, num_loci)`
-    genotypes: NDArray[np.int_] | None = field(default=None, repr=False)
+    genotypes: NDArray[np.int_] = np.array([], dtype=np.int_)
 
     # Minor allele frequencies at each locus.
     # Shape: `(num_loci,)`
-    allele_frequencies: NDArray[np.float64] | None = field(default=None, repr=False)
+    allele_frequencies: NDArray[np.float64] = np.array([], dtype=np.float64)
 
     # Phenotypes as an array of phenotype values for each sample.
     # Shape: `(num_samples, num_phenotypes)`
-    phenotypes: NDArray[np.float64] | None = field(default=None, repr=False)
+    phenotypes: NDArray[np.float64] = np.array([], dtype=np.float64)
 
     # Environmental factors.
     # Shape: `(num_samples, num_environmental_factors)`
-    environmental_factors: NDArray[np.float64] | None = field(default=None, repr=False)
+    environmental_factors: NDArray[np.float64] = np.array([], dtype=np.float64)
 
     # A dict of lists of causal loci for each phenotype.
     # Shape: `{phenotype_ind: [locus_ind]}`
-    causal_loci: dict[int, list[int]] = field(default_factory=dict)
+    causal_loci: dict[int, list[int]] = {}
 
     # A dict of dicts of effect sizes for each phenotype and locus.
     # Shape: `{phenotype_ind: {locus_ind: effect_size}}`
-    effect_sizes: dict[int, dict[int, float]] = field(default_factory=dict)
+    effect_sizes: dict[int, dict[int, float]] = {}
 
     # A list of tuples of pleiotropic effects.
     # Shape: `[(phenotype1, phenotype2, locus, effect_size)]`
-    pleiotropic_effects: list[tuple[int, int, int, float]] = field(default_factory=list)
+    pleiotropic_effects: list[tuple[int, int, int, float]] = []
 
     # A list of tuples of epistatic effects.
     # Shape: `[(phenotype, locus1, locus2, effect_size)]`
-    epistatic_effects: list[tuple[int, int, int, float]] = field(default_factory=list)
+    epistatic_effects: list[tuple[int, int, int, float]] = []
 
     # A dict of dicts of environmental effects for each phenotype and environmental factor.
     # Shape: `{phenotype_ind: {env_factor_ind: effect_size}}`
-    environmental_effects: dict[int, dict[int, float]] = field(default_factory=dict)
+    environmental_effects: dict[int, dict[int, float]] = {}
 
     # Random environmental noise for each sample and phenotype.
     # Shape: `(num_samples, num_phenotypes)`
-    environmental_noise: NDArray[np.float64] | None = field(default=None, repr=False)
+    environmental_noise: NDArray[np.float64] = np.array([], dtype=np.float64)
 
     def split_into_train_test(
-        self, train_frac: float = 0.8
+        self, train_test_split: float = 0.8, seed: int = 42
     ) -> tuple[SimulationData, SimulationData]:
         """
-        Split the phenotypes and genotypes into training and test sets.
+        Split the dataset into training and test sets.
         """
-        assert self.genotypes is not None
-        assert self.phenotypes is not None
-
         inds = np.arange(self.phenotypes.shape[0])
+
+        np.random.seed(seed)
         np.random.shuffle(inds)
 
-        num_training_samples = int(self.phenotypes.shape[0] * train_frac)
+        # Note: this does indeed properly copy the numpy arrays.
+        train_data = self.model_copy(deep=True)
+        test_data = self.model_copy(deep=True)
+
+        num_training_samples = int(self.phenotypes.shape[0] * train_test_split)
         train_inds = inds[:num_training_samples]
         test_inds = inds[num_training_samples:]
 
-        train_data = SimulationData(
-            params=self.params,
-            genotypes=self.genotypes[train_inds],
-            phenotypes=self.phenotypes[train_inds],
-        )
-
-        test_data = SimulationData(
-            params=self.params,
-            genotypes=self.genotypes[test_inds],
-            phenotypes=self.phenotypes[test_inds],
-        )
+        # Split all of the sample-dependent arrays using the train/test indices.
+        for attr in ["genotypes", "phenotypes", "environmental_factors", "environmental_noise"]:
+            setattr(train_data, attr, getattr(self, attr)[train_inds])
+            setattr(test_data, attr, getattr(self, attr)[test_inds])
 
         return train_data, test_data
 
@@ -146,28 +144,32 @@ class SimulationData:
         One-hot encode the minor allele counts in the `genotypes` array.
         """
         num_alleles = 2 if self.params.genome_type == "diploid" else 1
-        return np.eye(num_alleles, dtype=np.int_)[genotypes.astype(np.int_)]
+        return np.eye(num_alleles + 1, dtype=np.int_)[genotypes.astype(np.int_)]
 
-    def save(self, dirpath: str | Path, one_hot_encode_genotypes: bool = True) -> None:
+    def to_hdf5(self, filepath: str | Path, one_hot_encode_genotypes: bool = True) -> None:
+        """
+        Dump the simulation data to an HDF5 file.
+        """
+        if self.genotypes.size == 0 or self.phenotypes.size == 0:
+            raise ValueError("Genotypes and phenotypes must be populated before saving")
+
+        with h5py.File(filepath, "w") as file:
+            for attr in self.__dict__:
+                if one_hot_encode_genotypes and attr == "genotypes":
+                    file.create_dataset(attr, data=self.one_hot_encode_genotypes(self.genotypes))
+                else:
+                    file.create_dataset(attr, data=getattr(self, attr))
+
+    def save_train_test(self, dirpath: str | Path, one_hot_encode_genotypes: bool = True) -> None:
         """
         Save the simulated genotype and phenotype data as a pair of training and test datasets.
-
-        TODO: handle the non-array data (e.g. causal loci, effect sizes, pleiotropic effects, etc).
         """
         dirpath = Path(dirpath)
-        assert self.genotypes is not None
-        assert self.phenotypes is not None
 
-        train_data, test_data = self.split_into_train_test()
+        train_data, test_data = self.split_into_train_test(train_test_split=0.8, seed=42)
+
         for name, dataset in [("train", train_data), ("test", test_data)]:
-            genotypes = dataset.genotypes
-            assert genotypes is not None
-            if one_hot_encode_genotypes:
-                genotypes = self.one_hot_encode_genotypes(genotypes)
-
-            with h5py.File(dirpath / f"{name}-data.h5", "w") as file:
-                file.create_dataset("genotypes", data=genotypes)
-                file.create_dataset("phenotypes", data=dataset.phenotypes)
+            dataset.to_hdf5(dirpath / f"{name}-data.h5", one_hot_encode_genotypes)
 
         with open(dirpath / "params.yaml", "w") as file:
             yaml.safe_dump(self.params.model_dump(), file)
@@ -183,11 +185,16 @@ class GenotypePhenotypeSimulator:
 
     def simulate(self) -> SimulationData:
         """Run a complete simulation."""
-        data = SimulationData(params=self.params)
+        genotypes, allele_frequencies = self._generate_genotypes()
+        causal_loci, effect_sizes = self._select_causal_loci()
 
-        data.genotypes, data.allele_frequencies = self._generate_genotypes()
-
-        data.causal_loci, data.effect_sizes = self._select_causal_loci()
+        data = SimulationData(
+            params=self.params,
+            genotypes=genotypes,
+            allele_frequencies=allele_frequencies,
+            causal_loci=causal_loci,
+            effect_sizes=effect_sizes,
+        )
 
         data.pleiotropic_effects = self._generate_pleiotropic_effects(
             data.causal_loci, data.effect_sizes
@@ -423,9 +430,12 @@ class GenotypePhenotypeSimulator:
         """
         Calculate phenotypes by combining genetic and environmental components.
         """
-        assert data.genotypes is not None
-        assert data.environmental_factors is not None
-        assert data.environmental_noise is not None
+        if (
+            data.genotypes.size == 0
+            or data.environmental_factors.size == 0
+            or data.environmental_noise.size == 0
+        ):
+            raise ValueError("Required arrays must be populated before calculating phenotypes")
 
         # The genetic and environmental components of the phenotypes.
         genetic_components = np.zeros((params.num_samples, params.num_phenotypes))
@@ -478,7 +488,9 @@ class GenotypePhenotypeSimulator:
                 raise ValueError(f"Invalid value for broad sense heritability: {heritability}")
 
             # Scale genetic component to have variance equal to `heritability`.
-            genetic_scale_factor = np.sqrt(heritability / genetic_var)
+            genetic_scale_factor = np.sqrt(
+                heritability / (genetic_var if genetic_var > EPS else 1.0)
+            )
 
             # Calculate total environmental variance needed.
             total_env_var_needed = 1 - heritability
@@ -526,7 +538,7 @@ def run_simulation(output_dirpath: Path, config_filepath: Path):
 
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
-    data.save(output_dirpath)
+    data.save_train_test(output_dirpath)
 
     click.echo(f"Simulation results saved to {output_dirpath}")
 
