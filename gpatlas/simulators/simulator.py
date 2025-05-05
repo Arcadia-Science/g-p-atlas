@@ -9,6 +9,7 @@ This module implements a simulator for genotype-phenotype relationships with sup
 """
 
 from __future__ import annotations
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -87,21 +88,28 @@ class SimulationData:
     environmental_factors: NDArray[np.float64] | None = field(default=None, repr=False)
 
     # A dict of lists of causal loci for each phenotype.
+    # Shape: {phenotype_ind: [locus_ind]}
     causal_loci: dict[int, list[int]] = field(default_factory=dict)
 
     # A dict of dicts of effect sizes for each phenotype and locus.
+    # Shape: {phenotype_ind: {locus_ind: effect_size}}
     effect_sizes: dict[int, dict[int, float]] = field(default_factory=dict)
 
     # A list of tuples of pleiotropic effects.
-    # Shape: (phenotype1, phenotype2, locus, effect_size)
+    # Shape: [(phenotype1, phenotype2, locus, effect_size)]
     pleiotropic_effects: list[tuple[int, int, int, float]] = field(default_factory=list)
 
     # A list of tuples of epistatic effects.
-    # Shape: (phenotype, locus1, locus2, effect)
+    # Shape: [(phenotype, locus1, locus2, effect_size)]
     epistatic_effects: list[tuple[int, int, int, float]] = field(default_factory=list)
 
     # A dict of dicts of environmental effects for each phenotype and environmental factor.
-    env_effects: dict[int, dict[int, float]] = field(default_factory=dict)
+    # Shape: {phenotype_ind: {env_factor_ind: effect_size}}
+    environmental_effects: dict[int, dict[int, float]] = field(default_factory=dict)
+
+    # Random environmental noise for each sample and phenotype.
+    # Shape: (num_samples, num_phenotypes).
+    environmental_noise: NDArray[np.float64] | None = field(default=None, repr=False)
 
     def split_train_test(self) -> tuple[SimulationData, SimulationData]:
         """
@@ -158,8 +166,6 @@ class GenotypePhenotypeSimulator:
 
         data.genotypes, data.allele_frequencies = self._generate_genotypes()
 
-        data.environmental_factors = self._generate_environmental_factors()
-
         data.causal_loci, data.effect_sizes = self._select_causal_loci()
 
         data.pleiotropic_effects = self._generate_pleiotropic_effects(
@@ -168,9 +174,11 @@ class GenotypePhenotypeSimulator:
 
         data.epistatic_effects = self._generate_epistatic_effects(data.causal_loci)
 
-        data.env_effects = self._generate_environmental_effects()
+        data.environmental_factors = self._generate_environmental_factors()
+        data.environmental_effects = self._generate_environmental_effects()
+        data.environmental_noise = self._generate_environmental_noise()
 
-        data.phenotypes = self._calculate_phenotypes(data)
+        data.phenotypes = self._calculate_phenotypes(self.params, data)
 
         return data
 
@@ -231,8 +239,8 @@ class GenotypePhenotypeSimulator:
             causal_loci: dict[int, list[int]]
                 A dictionary mapping each phenotype index to a list of causal loci indices.
             effect_sizes: dict[int, dict[int, float]]
-                A dictionary mapping each phenotype index to a dictionary of effect sizes,
-                whose keys are the locus indices and whose values are the effect sizes.
+                A dictionary keyed by phenotype index, with values that are dictionaries
+                of effect sizes, keyed by locus indices.
         """
         params = self.params
         causal_loci = {}
@@ -257,13 +265,15 @@ class GenotypePhenotypeSimulator:
             causal_loci[phenotype_ind] = list(phenotype_causal_loci)
 
             # Assign effect sizes based on specified distribution.
-            effects = [
+            phenotype_effect_sizes = [
                 self._generate_effect_size() for _ in range(params.num_causal_loci_per_phenotype)
             ]
-            locus_to_effect = {
-                locus: effect for locus, effect in zip(phenotype_causal_loci, effects)
+            effect_sizes[phenotype_ind] = {
+                locus_ind: effect_size
+                for locus_ind, effect_size in zip(
+                    phenotype_causal_loci, phenotype_effect_sizes, strict=True
+                )
             }
-            effect_sizes[phenotype_ind] = locus_to_effect
 
         return causal_loci, effect_sizes
 
@@ -338,11 +348,11 @@ class GenotypePhenotypeSimulator:
         """
         Generate environmental factors for all samples.
 
-        Enviromental factors represent the environmental conditions
-        to which all samples are exposed.
+        Enviromental factors represent the random environmental conditions to which
+        each sample is exposed.
 
-        The response of a given sample to an environmental condition is random and is assigned
-        separately, in the `_generate_environmental_effects` method.
+        The effect a given environmental condition has on a given phenotype is defined separately,
+        in the `_generate_environmental_effects` method.
 
         Returns:
             env_factors: NDArray[np.float64]
@@ -355,7 +365,8 @@ class GenotypePhenotypeSimulator:
         return env_factors
 
     def _generate_environmental_effects(self) -> dict[int, dict[int, float]]:
-        """Generate phenotype-specific environmental effects.
+        """
+        Generate phenotype-specific environmental effects.
 
         Returns:
             env_effects: dict[int, dict[int, float]]
@@ -364,30 +375,36 @@ class GenotypePhenotypeSimulator:
                 are the effect sizes.
         """
         params = self.params
-        env_effects = {}
+        env_effects = defaultdict(dict)
 
         for phenotype_ind in range(params.num_phenotypes):
-            phenotype_env_effects = {}
-
             for env_factor_ind in range(params.num_environmental_factors):
                 if np.random.random() < params.env_influence_probability:
                     effect_size = self._generate_effect_size()
-                    phenotype_env_effects[env_factor_ind] = effect_size
-
-            env_effects[phenotype_ind] = phenotype_env_effects
+                    env_effects[phenotype_ind][env_factor_ind] = effect_size
 
         return env_effects
 
-    def _calculate_phenotypes(self, data: SimulationData) -> NDArray[np.float64]:
-        """Calculate phenotypes based on genetic and environmental factors."""
+    def _generate_environmental_noise(self) -> NDArray[np.float64]:
+        """
+        Generate random environmental noise for all samples.
 
+        Returns:
+            env_noise: NDArray[np.float64]
+                An array of environmental noise of shape (num_samples, num_phenotypes).
+        """
+        return np.random.normal(0, 1, (self.params.num_samples, self.params.num_phenotypes))
+
+    @staticmethod
+    def _calculate_phenotypes(
+        params: SimulationParameters, data: SimulationData
+    ) -> NDArray[np.float64]:
+        """
+        Calculate phenotypes by combining genetic and environmental components.
+        """
         assert data.genotypes is not None
         assert data.environmental_factors is not None
-
-        params = self.params
-
-        # Create random environmental noise for each phenotype.
-        random_env_noise = np.random.normal(0, 1, (params.num_samples, params.num_phenotypes))
+        assert data.environmental_noise is not None
 
         # The genetic and environmental components of the phenotypes.
         genetic_components = np.zeros((params.num_samples, params.num_phenotypes))
@@ -409,7 +426,7 @@ class GenotypePhenotypeSimulator:
 
         # Environmental effects.
         for phenotype_ind in range(params.num_phenotypes):
-            for env_factor_ind, effect_size in data.env_effects[phenotype_ind].items():
+            for env_factor_ind, effect_size in data.environmental_effects[phenotype_ind].items():
                 environmental_components[:, phenotype_ind] += (
                     data.environmental_factors[:, env_factor_ind] * effect_size
                 )
@@ -427,8 +444,8 @@ class GenotypePhenotypeSimulator:
             genetic_var = np.var(genetic_components[:, phenotype_ind])
             env_factors_var = np.var(environmental_components[:, phenotype_ind])
 
-            # If there is no genetic variance, we want to follow the logic
-            # of the heritability == 0 case.
+            # If there is no genetic variance, we set the heritability to 0
+            # to avoid division by zero.
             if genetic_var <= EPS:
                 heritability = 0
 
@@ -462,7 +479,7 @@ class GenotypePhenotypeSimulator:
             phenotypes[:, phenotype_ind] = (
                 genetic_components[:, phenotype_ind] * genetic_scale_factor
                 + environmental_components[:, phenotype_ind] * env_component_scale_factor
-                + random_env_noise[:, phenotype_ind] * env_noise_scale_factor
+                + data.environmental_noise[:, phenotype_ind] * env_noise_scale_factor
             )
 
         return phenotypes
