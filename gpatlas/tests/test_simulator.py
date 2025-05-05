@@ -20,12 +20,14 @@ from gpatlas.simulators.simulator import (
     SimulationParameters,
 )
 
+RANDOM_SEED = 42
+
 
 @pytest.mark.parametrize("minor_allele_freq_range", [(0.0, 0.5), (0.01, 0.05), (0.4, 0.6)])
 def test_maf_distribution(minor_allele_freq_range):
     """Test that the minor allele frequency distribution matches the specified range."""
     params = SimulationParameters(
-        seed=42,
+        seed=RANDOM_SEED,
         num_samples=500,
         num_loci=1000,
         minor_allele_freq_range=minor_allele_freq_range,
@@ -61,7 +63,7 @@ def test_genotype_distribution():
     """
     # Test diploid genotypes
     params = SimulationParameters(
-        seed=42,
+        seed=RANDOM_SEED,
         num_samples=1000,
         num_loci=100,
         num_phenotypes=3,
@@ -98,7 +100,7 @@ def test_effect_size_distributions(effect_size_distribution):
     TODO: check the mean and variance of the effect sizes for all distributions.
     """
     params = SimulationParameters(
-        seed=42,
+        seed=RANDOM_SEED,
         num_samples=1000,
         num_loci=1000,
         num_phenotypes=10,
@@ -144,7 +146,7 @@ def test_heritability_sibling_correlation():
     correlations_by_phenotype = defaultdict(list)
 
     params = SimulationParameters(
-        seed=42,
+        seed=RANDOM_SEED,
         num_samples=1000,
         num_loci=200,
         num_phenotypes=5,
@@ -222,7 +224,7 @@ def test_phenotype_variance(heritability, env_factors_weight):
     Test that the phenotypic variance is close to 1.0 for the given parameters.
     """
     params = SimulationParameters(
-        seed=40,
+        seed=RANDOM_SEED,
         num_samples=10000,
         num_loci=100,
         num_phenotypes=3,
@@ -247,7 +249,7 @@ def test_phenotype_variance(heritability, env_factors_weight):
 def test_pleiotropy_rate(pleiotropy_probability):
     """Test that the pleiotropy rate matches the specified probability."""
     params = SimulationParameters(
-        seed=42,
+        seed=RANDOM_SEED,
         num_samples=500,
         num_loci=1000,
         num_phenotypes=10,
@@ -279,7 +281,7 @@ def test_pleiotropy_rate(pleiotropy_probability):
 def test_epistasis_rate(epistasis_probability):
     """Test that the epistasis rate matches the specified probability."""
     params = SimulationParameters(
-        seed=42,
+        seed=RANDOM_SEED,
         num_samples=5000,
         num_loci=500,
         num_phenotypes=20,
@@ -309,7 +311,7 @@ def test_heritability_with_model_fit(genome_type, heritability):
     to simulated data with only additive effects.
     """
     params = SimulationParameters(
-        seed=42,
+        seed=RANDOM_SEED,
         genome_type=genome_type,
         num_samples=1000,
         num_loci=100,
@@ -338,7 +340,7 @@ def test_heritability_with_model_fit(genome_type, heritability):
 def test_save_functionality(tmp_path):
     """Test that the save functionality works as expected."""
     params = SimulationParameters(
-        seed=42,
+        seed=RANDOM_SEED,
         num_samples=100,
         num_loci=50,
         num_phenotypes=3,
