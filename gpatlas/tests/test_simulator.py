@@ -298,7 +298,8 @@ def test_epistasis_rate(epistasis_probability):
 
 @pytest.mark.parametrize("genome_type", ["haploid", "diploid"])
 @pytest.mark.parametrize("heritability", [0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-def test_heritability_with_model_fit(genome_type, heritability):
+@pytest.mark.parametrize("effect_size_distribution", ["normal", "exponential", "gamma"])
+def test_heritability_with_model_fit(genome_type, heritability, effect_size_distribution):
     """
     Check that the heritability is close to the target value when fitting a linear model
     to simulated data with only additive effects.
@@ -313,13 +314,14 @@ def test_heritability_with_model_fit(genome_type, heritability):
         pleiotropy_probability=0.0,
         epistasis_probability=0.0,
         broad_sense_heritability=heritability,
+        effect_size_distribution=effect_size_distribution,
     )
 
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
 
     # Fit a linear model to the data.
-    # The value of `alpha` was chosen empirically to ensure the model is not too strict.
+    # (The value of `alpha` was chosen empirically to ensure the model is not too strict.)
     model = Lasso(alpha=0.03)
     model.fit(data.genotypes, data.phenotypes)
 
@@ -327,12 +329,12 @@ def test_heritability_with_model_fit(genome_type, heritability):
     assert np.isclose(model.score(data.genotypes, data.phenotypes), heritability, atol=0.1)
 
 
-# We don't test heritability = 0.0 here because we're only interested in the effect of epistasis
-# when there is some heritability to explain.
+# We don't test with `heritability = 0.0` here because we're only interested
+# in the effect of epistasis when there is some heritability to model.
 @pytest.mark.parametrize("heritability", [0.3, 0.6, 1.0])
 def test_model_fit_with_epistasis(heritability):
     """
-    Test that the model fit gets worse as the epistasis probability increases.
+    Test that the model fit gets worse as the rate of epistasis increases.
     """
 
     # Note: the model fit is not super sensitive to the epistasis probability,
@@ -350,6 +352,7 @@ def test_model_fit_with_epistasis(heritability):
             pleiotropy_probability=0.0,
             epistasis_probability=epistasis_probability,
             broad_sense_heritability=heritability,
+            effect_size_distribution="normal",
         )
 
         simulator = GenotypePhenotypeSimulator(params)
@@ -360,13 +363,13 @@ def test_model_fit_with_epistasis(heritability):
         model_score = model.score(data.genotypes, data.phenotypes)
         model_scores.append(model_score)
 
-        # If there is epistasis present, the mode fit should be worse than the heritability.
+        # If there is epistasis present, the model fit should be worse than the heritability.
         if epistasis_probability > 0.0:
             assert model_score < heritability
         else:
             assert np.isclose(model_score, heritability, atol=0.1)
 
-    # The model fit should get worse as the epistasis probability increases.
+    # The model fit should get worse as the extent of epistasis increases.
     for ind in range(1, len(model_scores)):
         assert model_scores[ind] < model_scores[ind - 1]
 
@@ -375,7 +378,7 @@ def test_model_fit_with_epistasis(heritability):
 @pytest.mark.parametrize("pleiotropy_probability", [0.0, 0.5, 1.0])
 def test_model_fit_with_pleiotropy(heritability, pleiotropy_probability):
     """
-    Test that the model fit does not depend on the pleiotropy probability.
+    Test that the model fit does not depend on the extent of pleiotropy.
 
     Pleiotropic interactions are still linear, so a linear model should fit the data just as well
     with or without pleiotropy.
@@ -389,6 +392,7 @@ def test_model_fit_with_pleiotropy(heritability, pleiotropy_probability):
         pleiotropy_probability=pleiotropy_probability,
         epistasis_probability=0.0,
         broad_sense_heritability=heritability,
+        effect_size_distribution="normal",
     )
 
     simulator = GenotypePhenotypeSimulator(params)
@@ -397,6 +401,8 @@ def test_model_fit_with_pleiotropy(heritability, pleiotropy_probability):
     model = Lasso(alpha=0.03)
     model.fit(data.genotypes, data.phenotypes)
     model_score = model.score(data.genotypes, data.phenotypes)
+
+    # The model fit should be comparable to the heritability, regardless of pleiotropy.
     assert np.isclose(model_score, heritability, atol=0.1)
 
 
