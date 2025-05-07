@@ -1,9 +1,8 @@
 """
-This module is a refactored version of the simulation script `tools_for_phen_gen_creation.py`
-from the 'nonlinear phenotypes' pub:
-https://research.arcadiascience.com/pub/result-nonlinear-phenotypes/release/4.
+This script is a refactored version of the simulation script `tools_for_phen_gen_creation.py`
+used in [the 'nonlinear phenotypes' pub](https://research.arcadiascience.com/pub/result-nonlinear-phenotypes/release/4).
 
-The original script is here:
+The original script is found here:
 https://github.com/Arcadia-Science/accounting-for-nonlinear-phenotypes/blob/v1.0.1/01_code/python/tools_for_phen_gen_creation.py.
 
 Major changes in this refactored version:

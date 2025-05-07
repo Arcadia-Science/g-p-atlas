@@ -67,6 +67,18 @@ This will generate plots in the `plots/` directory and save the predicted phenot
 
 The dataset directory should contain a `train-data.h5` file with the training data and a `test-data.h5` file with the test data. These files should contain two datasets: `genotypes` and `phenotypes`. The `genotypes` dataset should be an array of one-hot encoded allelic states for each sample and locus. Its shape should be `(num_samples, num_loci, num_allelic_states)`. (In most cases, `num_allelic_states` is either 2 for bi-allelic loci or 3 for bi-allelic loci in a diploid organism.) The `phenotypes` dataset is an array of quantitative phenotypes with dimensions `(num_samples, num_phenotypes)`. The order of the samples in the first dimension of the two datasets is assumed to match.
 
+## Simulation scripts
+
+The repo contains two scripts for simulating genotype-phenotype data.
+
+### `simulate_data_for_pub.py`
+
+This script is a refactored version of the simulation script `tools_for_phen_gen_creation.py` used in [the 'nonlinear phenotypes' pub](https://research.arcadiascience.com/pub/result-nonlinear-phenotypes/release/4).
+
+### `gpatlas/simulators/simulator.py`
+
+This script is a somewhat more flexible and fully-featured simulation script that can be used to simulate genotype-phenotype data under a wider variety of (still simplistic)conditions. This script is not comparable to the `simulate_data_for_pub.py` script as it takes a different approach to simulating epistasis and pleiotropy, but it is more robustly tested (see `gpatlas/tests/test_simulator.py`).
+
 ## Development
 
 ### Environment setup

@@ -1,10 +1,16 @@
-#!/usr/bin/env python
 """
-This module implements a simulator for genotype-phenotype relationships with support for:
-- Additive effects
-- Gene-gene interactions (epistasis)
-- Pleiotropy (genes affecting multiple phenotypes)
-- Environmental effects
+This module implements a rudimentary simulator for genotype-phenotype datasets.
+
+It supports the following features:
+- Additive effects.
+- Gene-gene interactions (epistasis).
+- Pleiotropy (genes affecting multiple phenotypes).
+- Environmental effects and noise.
+
+It does not support:
+- Gene-environment interactions.
+- Linkage disequilibrium.
+- Dominance or other non-additive effects.
 
 """
 
@@ -32,13 +38,24 @@ class SimulationParameters(BaseModel):
 
     seed: int = 42
 
-    num_samples: int = 1000
-    num_loci: int = 1000
-    minor_allele_freq_range: tuple[float, float] = (0.05, 0.5)
-    genome_type: Literal["diploid", "haploid"] = "diploid"
+    # The genome type determines the count of minor alleles at each locus.
+    # (0 or 1 for haploid, and 0, 1, or 2 for diploid.)
+    genome_type: Literal["diploid", "haploid"] = "haploid"
 
-    num_phenotypes: int = 30
-    num_causal_loci_per_phenotype: int = 10
+    # The number of samples (or individuals, or animals, etc.) to simulate.
+    num_samples: int = 1000
+
+    # The number of segregating loci to simulate.
+    num_loci: int = 100
+
+    # The range of minor allele frequencies to use for the loci.
+    minor_allele_frequency_range: tuple[float, float] = (0.4, 0.5)
+
+    # The number of phenotypes to simulate.
+    num_phenotypes: int = 10
+
+    # The number of additive causal loci per phenotype.
+    num_causal_loci_per_phenotype: int = 5
 
     # The probability that a causal locus is pleiotropic (that is, has an effect on two phenotypes).
     # (This is not the same as the probability that a given pair of phenotypes
@@ -50,21 +67,23 @@ class SimulationParameters(BaseModel):
     epistasis_probability: float = 0.2
 
     # Proportion of variance explained by genetic effects.
-    # To disable all environmental effects and environmental noise, set to 1.0.
+    # To disable both environmental effects and environmental noise, set this to 1.0.
     broad_sense_heritability: float | list[float] = 0.6
 
-    # The parameters of the effect size distribution.
+    # The type and scale of the effect size distribution.
     effect_size_distribution: Literal["normal", "exponential", "gamma"] = "normal"
     effect_size_scale: float = 1.0
 
-    # Environmental factors. There must be at least one environmental factor.
-    # To disable environmental effects (leaving only random noise), set `env_factors_weight` to 0.0.
-    num_environmental_factors: int = 1
-    env_influence_probability: float = 0.2
-
     # Proportion of environmental variance allocated to environmental factors vs. random noise.
-    # (0.0 = all random noise, 1.0 = all environmental factors).
+    # To disable environmental effects (leaving only random noise), set `env_factors_weight` to 0.0.
     env_factors_weight: float = 0.5
+
+    # The number of environmental factors (there must be at least one,
+    # even if `env_factors_weight` is 0.0).
+    num_environmental_factors: int = 1
+
+    # The probability that a given environmental factor has an effect on a given phenotype.
+    env_influence_probability: float = 0.2
 
 
 class SimulationData(BaseModel):
@@ -281,8 +300,8 @@ class GenotypePhenotypeSimulator:
         params = self.params
 
         allele_freqs = np.random.uniform(
-            low=params.minor_allele_freq_range[0],
-            high=params.minor_allele_freq_range[1],
+            low=params.minor_allele_frequency_range[0],
+            high=params.minor_allele_frequency_range[1],
             size=params.num_loci,
         )
 

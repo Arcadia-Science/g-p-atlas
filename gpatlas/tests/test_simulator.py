@@ -34,7 +34,7 @@ def test_maf_distribution(minor_allele_freq_range):
         seed=RANDOM_SEED,
         num_samples=500,
         num_loci=1000,
-        minor_allele_freq_range=minor_allele_freq_range,
+        minor_allele_frequency_range=minor_allele_freq_range,
     )
 
     simulator = GenotypePhenotypeSimulator(params)
@@ -42,12 +42,12 @@ def test_maf_distribution(minor_allele_freq_range):
 
     assert data.allele_frequencies is not None
 
-    assert np.min(data.allele_frequencies) >= params.minor_allele_freq_range[0]
-    assert np.max(data.allele_frequencies) <= params.minor_allele_freq_range[1]
+    assert np.min(data.allele_frequencies) >= params.minor_allele_frequency_range[0]
+    assert np.max(data.allele_frequencies) <= params.minor_allele_frequency_range[1]
 
     # Check MAF distribution uniformity using Kolmogorov-Smirnov test
-    scaled_mafs = (data.allele_frequencies - params.minor_allele_freq_range[0]) / (
-        params.minor_allele_freq_range[1] - params.minor_allele_freq_range[0]
+    scaled_mafs = (data.allele_frequencies - params.minor_allele_frequency_range[0]) / (
+        params.minor_allele_frequency_range[1] - params.minor_allele_frequency_range[0]
     )
 
     # Compare the empirical CDF with a uniform CDF.
