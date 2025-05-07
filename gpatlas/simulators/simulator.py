@@ -55,8 +55,7 @@ class SimulationParameters(BaseModel):
 
     # The parameters of the effect size distribution.
     effect_size_distribution: Literal["normal", "exponential", "gamma"] = "normal"
-    effect_size_mean: float = 0.0
-    effect_size_std: float = 1.0
+    effect_size_scale: float = 1.0
 
     # Environmental factors. There must be at least one environmental factor.
     # To disable environmental effects (leaving only random noise), set `env_factors_weight` to 0.0.
@@ -254,15 +253,15 @@ class GenotypePhenotypeSimulator:
         """
         params = self.params
         if params.effect_size_distribution == "normal":
-            effect_size = np.random.normal(params.effect_size_mean, params.effect_size_std)
+            effect_size = np.random.normal(loc=0.0, scale=params.effect_size_scale)
         elif params.effect_size_distribution == "exponential":
-            effect_size = np.random.exponential(scale=params.effect_size_std)
+            effect_size = np.random.exponential(scale=params.effect_size_scale)
         elif params.effect_size_distribution == "gamma":
-            effect_size = np.random.gamma(shape=1.0, scale=params.effect_size_std)
+            effect_size = np.random.gamma(shape=2.0, scale=params.effect_size_scale)
         else:
             raise ValueError(f"Unknown effect size distribution: {params.effect_size_distribution}")
 
-        # Randomly assign a sign.
+        # Randomly assign a sign for distributions on [0, inf).
         if params.effect_size_distribution in ["exponential", "gamma"]:
             effect_size *= np.random.choice([-1, 1])
 
@@ -488,6 +487,7 @@ class GenotypePhenotypeSimulator:
         for phenotype_ind in range(params.num_phenotypes):
             for other_phenotype_ind, locus_ind1, locus_ind2, effect_size in data.epistatic_effects:
                 if other_phenotype_ind == phenotype_ind:
+                    # The interaction effect is proportional to the product of the allele counts.
                     interaction = (
                         data.genotypes[:, locus_ind1] * data.genotypes[:, locus_ind2] * effect_size
                     )

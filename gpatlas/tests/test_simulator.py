@@ -96,7 +96,7 @@ def test_effect_size_distributions(effect_size_distribution):
         num_phenotypes=10,
         num_causal_loci_per_phenotype=30,
         effect_size_distribution=effect_size_distribution,
-        effect_size_std=1.0,
+        effect_size_scale=1.0,
     )
 
     simulator = GenotypePhenotypeSimulator(params)
