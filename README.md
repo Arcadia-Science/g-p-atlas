@@ -71,7 +71,7 @@ The dataset directory should contain a `train-data.h5` file with the training da
 
 The repo contains two scripts for simulating genotype-phenotype data.
 
-### `simulate_data_for_pub.py`
+### `gpatlas/simulators/simulate_data_for_pub.py`
 
 This script is a refactored version of the simulation script `tools_for_phen_gen_creation.py` used in [the 'nonlinear phenotypes' pub](https://research.arcadiascience.com/pub/result-nonlinear-phenotypes/release/4).
 
