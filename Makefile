@@ -26,11 +26,3 @@ pre-commit:
 .PHONY: test
 test:
 	pytest -v .
-
-.PHONY: clean
-clean:
-	rm -rf dist
-
-.PHONY: build
-build: clean
-	poetry build
