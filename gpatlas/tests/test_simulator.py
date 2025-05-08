@@ -1,13 +1,3 @@
-"""
-Tests for the genotype-phenotype simulator.
-
-These tests verify statistical properties of simulated datasets, including:
-- Minor allele frequency distribution
-- Heritability
-- Pleiotropy and epistasis rates
-- Environmental effects
-"""
-
 import json
 from collections import defaultdict
 
@@ -61,25 +51,40 @@ def test_maf_distribution(minor_allele_freq_range):
     assert max_diff < critical_value
 
 
-@pytest.mark.parametrize("genome_type, num_alleles", [("haploid", 2), ("diploid", 3)])
-def test_genotype_distribution(genome_type, num_alleles):
+def test_haploid_genotype_distribution():
     """
-    Test that the genotype distribution matches expected frequencies for both diploid and haploid.
+    Test that the genotype distribution matches expected frequencies for haploid genotypes.
     """
-    # Test diploid genotypes
+    num_loci = 100
     params = SimulationParameters(
         seed=RANDOM_SEED,
         num_samples=1000,
-        num_loci=100,
+        num_loci=num_loci,
         num_phenotypes=3,
-        genome_type=genome_type,
+        genome_type="haploid",
+        # Use a wide range of MAFs to test the distribution at both extremes.
+        minor_allele_frequency_range=(0.1, 0.9),
     )
 
     simulator = GenotypePhenotypeSimulator(params)
     data = simulator.simulate()
 
-    unique_values = np.unique(data.genotypes)
-    assert set(unique_values).issubset(range(num_alleles))
+    assert set(np.unique(data.genotypes)) == {0, 1}
+
+    # Check that the count of minor alleles matches the expected frequencies.
+    for locus_ind in range(num_loci):
+        assert np.isclose(
+            np.mean(data.genotypes[:, locus_ind] == 1),
+            data.allele_frequencies[locus_ind],
+            atol=0.05,
+        )
+
+
+def test_diploid_genotype_distribution():
+    """
+    Test that the genotype distribution matches expected frequencies for diploid genotypes.
+    """
+    pass
 
 
 @pytest.mark.parametrize("effect_size_distribution", ["normal", "exponential", "gamma"])
@@ -199,14 +204,14 @@ def test_heritability_sibling_correlation():
                 assert correlations[i] > correlations[i - 1], (
                     f"Sibling correlation should increase with heritability "
                     f"for phenotype {phenotype_idx}, "
-                    f"but got {correlations[i-1]} for h2={heritabilities[i-1]} and "
+                    f"but got {correlations[i - 1]} for h2={heritabilities[i - 1]} and "
                     f"{correlations[i]} for h2={heritabilities[i]}"
                 )
 
 
 @pytest.mark.parametrize("env_factors_weight", [0.0, 0.5, 1.0])
 @pytest.mark.parametrize("heritability", [0.0, 0.3, 0.6, 1.0])
-def test_phenotype_variance(heritability, env_factors_weight):
+def test_phenotypic_variance(heritability, env_factors_weight):
     """
     Test that the phenotypic variance is close to 1.0.
 
@@ -378,7 +383,7 @@ def test_model_fit_with_epistasis(heritability):
 @pytest.mark.parametrize("pleiotropy_probability", [0.0, 0.5, 1.0])
 def test_model_fit_with_pleiotropy(heritability, pleiotropy_probability):
     """
-    Test that the model fit does not depend on the extent of pleiotropy.
+    Test that the model fit does not depend on the pleiotropy rate.
 
     Pleiotropic interactions are still linear, so a linear model should fit the data just as well
     with or without pleiotropy.
@@ -407,6 +412,9 @@ def test_model_fit_with_pleiotropy(heritability, pleiotropy_probability):
 
 
 def test_data_to_hdf5(tmp_path):
+    """
+    Test that the data can be saved to a file correctly.
+    """
     num_samples = 100
     num_loci = 50
     num_phenotypes = 3

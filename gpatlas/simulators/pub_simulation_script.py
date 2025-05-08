@@ -87,7 +87,7 @@ def simulate_data(
     for phenotype_ind in range(num_phenotypes):
         for active_locus_ind in range(num_active_loci):
             # Pick a random locus index to be an active locus for this phenotype.
-            # TODO (KC): shouldn't this sample without replacement?
+            # TODO (KC): should this sample without replacement?
             locus_ind = int(np.random.randint(num_total_loci))
 
             # Set the weight of each allele at the locus to a random value between 0 and 10.
@@ -96,7 +96,7 @@ def simulate_data(
             # Assign the locus index to the current pair of phenotype and active locus.
             active_loci_inds[phenotype_ind][active_locus_ind] = locus_ind
 
-    # add pleiotropy.  For each active locus, this will add an effect on each other phenotype
+    # Add pleiotropy.  For each active locus, this will add an effect on each other phenotype
     # with probability `pleiotropy_probability`.
     all_active_loci_inds = copy.deepcopy(active_loci_inds)
 
@@ -190,7 +190,7 @@ def simulate_data(
     # TODO (KC): Avoid re-casting to numpy arrays.
     weighted_genotypes = np.array(weighted_genotypes)  # type: ignore
 
-    # make gene-gene interactions
+    # Make gene-gene interactions.
     interacting_locus_inds: list[int] = []
     gene_gene_interactions: list[list[tuple[int, int, int]]] = []
 
@@ -214,7 +214,7 @@ def simulate_data(
 
         gene_gene_interactions.append(phenotype_gene_gene_interactions)
 
-    # impose gene-gene interactions
+    # Impose gene-gene interactions.
     for sample_ind in range(num_samples):
         for phenotype_ind in range(num_phenotypes):
             for interaction in gene_gene_interactions[phenotype_ind]:

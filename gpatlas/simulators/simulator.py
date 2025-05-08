@@ -506,7 +506,8 @@ class GenotypePhenotypeSimulator:
         for phenotype_ind in range(params.num_phenotypes):
             for other_phenotype_ind, locus_ind1, locus_ind2, effect_size in data.epistatic_effects:
                 if other_phenotype_ind == phenotype_ind:
-                    # The interaction effect is proportional to the product of the allele counts.
+                    # We use a multiplicative model in which the interaction effect is
+                    # proportional to the product of the allele counts.
                     interaction = (
                         data.genotypes[:, locus_ind1] * data.genotypes[:, locus_ind2] * effect_size
                     )
