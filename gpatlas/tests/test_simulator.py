@@ -58,7 +58,7 @@ def test_haploid_genotype_distribution():
     num_loci = 100
     params = SimulationParameters(
         seed=RANDOM_SEED,
-        num_samples=1000,
+        num_samples=10000,
         num_loci=num_loci,
         num_phenotypes=3,
         genome_type="haploid",
@@ -84,7 +84,46 @@ def test_diploid_genotype_distribution():
     """
     Test that the genotype distribution matches expected frequencies for diploid genotypes.
     """
-    pass
+    num_loci = 100
+    params = SimulationParameters(
+        seed=RANDOM_SEED,
+        num_samples=10000,
+        num_loci=num_loci,
+        num_phenotypes=3,
+        genome_type="diploid",
+        # Use a wide range of MAFs to test the distribution at both extremes.
+        minor_allele_frequency_range=(0.1, 0.9),
+    )
+
+    simulator = GenotypePhenotypeSimulator(params)
+    data = simulator.simulate()
+
+    assert set(np.unique(data.genotypes)) == {0, 1, 2}
+
+    # For each locus, check that the distribution follows Hardy-Weinberg Equilibrium
+    # and that the mean matches the expected value (2 * minor allele frequency)
+    for locus_ind in range(num_loci):
+        minor_allele_freq = data.allele_frequencies[locus_ind]
+
+        # Count occurrences of each genotype
+        counts = np.bincount(data.genotypes[:, locus_ind], minlength=3)
+        observed_frequencies = counts / params.num_samples
+
+        # Expected frequencies for 0, 1, and 2 minor alleles, respectively.
+        expected_frequencies = [
+            (1 - minor_allele_freq) ** 2,
+            2 * minor_allele_freq * (1 - minor_allele_freq),
+            minor_allele_freq**2,
+        ]
+
+        # Check that observed frequencies are close to expected frequencies.
+        assert np.allclose(observed_frequencies, expected_frequencies, atol=0.05)
+
+        # Check that the mean matches twices the minor allele frequency.
+        # (The expected mean is `0*P(0) + 1*P(1) + 2*P(2) = 2p`)
+        expected_mean = 2 * minor_allele_freq
+        observed_mean = np.mean(data.genotypes[:, locus_ind])
+        assert np.isclose(observed_mean, expected_mean, atol=0.05)
 
 
 @pytest.mark.parametrize("effect_size_distribution", ["normal", "exponential", "gamma"])
