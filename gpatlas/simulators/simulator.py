@@ -26,7 +26,7 @@ import h5py
 import numpy as np
 import yaml
 from numpy.typing import NDArray
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 EPS = 1e-6
 
@@ -48,8 +48,9 @@ class SimulationParameters(BaseModel):
     # The number of segregating loci to simulate.
     num_loci: int = 100
 
-    # The range of minor allele frequencies to use for the loci.
-    minor_allele_frequency_range: tuple[float, float] = (0.4, 0.5)
+    # The range of minor allele frequencies to use when simulating loci.
+    # To specify a single MAF, use the same value for both elements of the tuple.
+    minor_allele_frequency_range: tuple[float, float] = (0.5, 0.5)
 
     # The number of phenotypes to simulate.
     num_phenotypes: int = 10
@@ -66,9 +67,14 @@ class SimulationParameters(BaseModel):
     # (that is, have an interaction effect on the phenotype).
     epistasis_probability: float = 0.2
 
-    # Proportion of variance explained by genetic effects.
-    # To disable both environmental effects and environmental noise, set this to 1.0.
+    # Proportion of phenotypic variance explained by genetic effects.
+    # If a list, there must be one value per phenotype.
     broad_sense_heritability: float | list[float] = 0.6
+
+    # Proportion of phenotypic variance explained by narrow-sense heritability
+    # (additive genetic effects).
+    # If a list, there must be one value per phenotype.
+    narrow_sense_heritability: float | list[float] = 0.4
 
     # The type and scale of the effect size distribution.
     effect_size_distribution: Literal["normal", "exponential", "gamma"] = "normal"
@@ -84,6 +90,52 @@ class SimulationParameters(BaseModel):
 
     # The probability that a given environmental factor has an effect on a given phenotype.
     env_influence_probability: float = 0.2
+
+    @field_validator("broad_sense_heritability", "narrow_sense_heritability")
+    @classmethod
+    def validate_heritability_range(cls, value: float | list[float]) -> float | list[float]:
+        """
+        Validate that heritability values are between 0 and 1.
+        """
+        if not isinstance(value, list):
+            heritabilities = [value]
+        else:
+            heritabilities = value
+
+        for h in heritabilities:
+            if h < 0 or h > 1:
+                raise ValueError(f"Heritability value {h} must be between 0 and 1")
+        return value
+
+    @model_validator(mode="after")
+    def validate_heritability_hierarchy(cls, data):
+        """
+        Validate that broad sense heritability is greater than or equal
+        to narrow sense heritability.
+        """
+        broad = data.broad_sense_heritability
+        narrow = data.narrow_sense_heritability
+
+        if isinstance(broad, list) and isinstance(narrow, list):
+            if len(broad) != len(narrow):
+                raise ValueError("If both heritabilities are lists, they must have the same length")
+            for b, n in zip(broad, narrow, strict=True):
+                if b < n:
+                    raise ValueError(
+                        f"Broad sense heritability ({b}) must be greater than or equal "
+                        f"to narrow sense heritability ({n})"
+                    )
+        elif isinstance(broad, list) or isinstance(narrow, list):
+            raise ValueError(
+                "Either both heritabilities must be lists, or both must be single values"
+            )
+        else:
+            if broad < narrow:
+                raise ValueError(
+                    f"Broad sense heritability ({broad}) must be greater than "
+                    f"or equal to narrow sense heritability ({narrow})"
+                )
+        return data
 
 
 class SimulationData(BaseModel):
