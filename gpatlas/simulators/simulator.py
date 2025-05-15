@@ -531,12 +531,12 @@ class GenotypePhenotypeSimulator:
         """
         return np.random.normal(0, 1, (self.params.num_samples, self.params.num_phenotypes))
 
-    @staticmethod
     def _calculate_phenotypes(
-        params: SimulationParameters, data: SimulationData
+        self, params: SimulationParameters, data: SimulationData
     ) -> NDArray[np.float64]:
         """
-        Calculate phenotypes by combining genetic and environmental components.
+        Calculate phenotypes by combining all genetic and environmental effects with the appropriate
+        scale factors to achieve the desired heritability for each phenotype.
         """
         if (
             data.genotypes.size == 0
@@ -545,14 +545,25 @@ class GenotypePhenotypeSimulator:
         ):
             raise ValueError("Required arrays must be populated before calculating phenotypes")
 
-        # The genetic and environmental components of the phenotypes.
-        genetic_components = np.zeros((params.num_samples, params.num_phenotypes))
-        environmental_components = np.zeros((params.num_samples, params.num_phenotypes))
+        # Create lists of heritabilities for convenience.
+        broad_sense_heritabilities = params.broad_sense_heritability
+        if not isinstance(broad_sense_heritabilities, list):
+            broad_sense_heritabilities = [broad_sense_heritabilities] * params.num_phenotypes
+
+        narrow_sense_heritabilities = params.narrow_sense_heritability
+        if not isinstance(narrow_sense_heritabilities, list):
+            narrow_sense_heritabilities = [narrow_sense_heritabilities] * params.num_phenotypes
+
+        additive_genetic_effects = np.zeros((params.num_samples, params.num_phenotypes))
+        epistatic_genetic_effects = np.zeros((params.num_samples, params.num_phenotypes))
+        environmental_effects = np.zeros((params.num_samples, params.num_phenotypes))
 
         # Additive effects (including pleiotropic effects).
         for phenotype_ind in range(params.num_phenotypes):
             for locus_ind, effect_size in data.effect_sizes[phenotype_ind].items():
-                genetic_components[:, phenotype_ind] += data.genotypes[:, locus_ind] * effect_size
+                additive_genetic_effects[:, phenotype_ind] += (
+                    data.genotypes[:, locus_ind] * effect_size
+                )
 
         # Epistatic effects.
         for phenotype_ind in range(params.num_phenotypes):
@@ -560,70 +571,98 @@ class GenotypePhenotypeSimulator:
                 if other_phenotype_ind == phenotype_ind:
                     # We use a multiplicative model in which the interaction effect is
                     # proportional to the product of the allele counts.
-                    interaction = (
+                    interaction_effects = (
                         data.genotypes[:, locus_ind1] * data.genotypes[:, locus_ind2] * effect_size
                     )
-                    genetic_components[:, phenotype_ind] += interaction
+                    epistatic_genetic_effects[:, phenotype_ind] += interaction_effects
 
         # Environmental effects.
         for phenotype_ind in range(params.num_phenotypes):
             for env_factor_ind, effect_size in data.environmental_effects[phenotype_ind].items():
-                environmental_components[:, phenotype_ind] += (
+                environmental_effects[:, phenotype_ind] += (
                     data.environmental_factors[:, env_factor_ind] * effect_size
                 )
 
-        # Construct the final phenotypes by scaling the genetic and environmental components
+        # Construct the final phenotypes by scaling the genetic and environmental effects
         # to achieve the desired heritability for each phenotype.
         phenotypes = np.zeros((params.num_samples, params.num_phenotypes))
-        heritability: float
         for phenotype_ind in range(params.num_phenotypes):
-            if isinstance(params.broad_sense_heritability, list):
-                heritability = params.broad_sense_heritability[phenotype_ind]
-            else:
-                heritability = params.broad_sense_heritability
+            broad_sense_heritability = broad_sense_heritabilities[phenotype_ind]
+            narrow_sense_heritability = narrow_sense_heritabilities[phenotype_ind]
 
-            genetic_var = np.var(genetic_components[:, phenotype_ind])
-            env_factors_var = np.var(environmental_components[:, phenotype_ind])
+            additive_genetic_var = np.var(additive_genetic_effects[:, phenotype_ind])
+            epistatic_genetic_var = np.var(epistatic_genetic_effects[:, phenotype_ind])
 
-            # If there is no genetic variance, we set the heritability to 0
-            # to avoid division by zero.
-            if genetic_var <= EPS:
-                heritability = 0
+            if epistatic_genetic_var < EPS and broad_sense_heritability > narrow_sense_heritability:
+                print(
+                    "Warning: the epistatic genetic effects have no variance, "
+                    "but broad-sense heritability is greater than narrow-sense heritability.",
+                )
 
-            genetic_scale_factor: float
-            env_component_scale_factor: float
-            env_noise_scale_factor: float
-
-            if heritability < 0 or heritability > 1:
-                raise ValueError(f"Invalid value for broad sense heritability: {heritability}")
-
-            # Scale genetic component to have variance equal to `heritability`.
-            genetic_scale_factor = np.sqrt(
-                heritability / (genetic_var if genetic_var > EPS else 1.0)
+            additive_genetic_scale_factor = np.sqrt(
+                narrow_sense_heritability
+                / (additive_genetic_var if additive_genetic_var > EPS else EPS)
             )
 
+            epistatic_genetic_scale_factor = np.sqrt(
+                (broad_sense_heritability - narrow_sense_heritability)
+                / (epistatic_genetic_var if epistatic_genetic_var > EPS else EPS)
+            )
+
+            # We first scale the additive and epistatic genetic effects to achieve the target
+            # narrow-sense heritability within the genetic effects.
+            all_genetic_effects = (
+                additive_genetic_effects[:, phenotype_ind] * additive_genetic_scale_factor
+                + epistatic_genetic_effects[:, phenotype_ind] * epistatic_genetic_scale_factor
+            )
+
+            # We then scale all genetic effects to achieve the target broad-sense heritability.
+            # We do this because the additive and epistatic effects may not be mean-centered,
+            # so the actual variance of their scaled sum may differ from the desired
+            # broad-sense heritability.
+            all_genetic_effects_var = np.var(all_genetic_effects)
+            env_factors_var = np.var(environmental_effects[:, phenotype_ind])
+
+            all_genetic_effects_scale_factor = np.sqrt(
+                broad_sense_heritability
+                / (all_genetic_effects_var if all_genetic_effects_var > EPS else EPS)
+            )
+
+            if all_genetic_effects_var < EPS and broad_sense_heritability > 0:
+                raise ValueError(
+                    "Genetic effects have no variance, but broad-sense heritability is non-zero."
+                )
+
             # Calculate total environmental variance needed.
-            total_env_var_needed = 1 - heritability
+            total_env_var_needed = 1 - broad_sense_heritability
 
             # Split the environmental variance between structured effects and random noise.
+            env_effects_scale_factor: float
+            env_noise_scale_factor: float
             if env_factors_var > EPS:
-                env_component_scale_factor = np.sqrt(
+                env_effects_scale_factor = np.sqrt(
                     (total_env_var_needed * params.env_factors_weight) / env_factors_var
                 )
                 env_noise_scale_factor = np.sqrt(
                     total_env_var_needed * (1 - params.env_factors_weight)
                 )
             else:
-                # All environmental variance comes from random noise.
-                env_component_scale_factor = 0
+                # If there are no environmental factors, all environmental variance
+                # comes from random noise.
+                env_effects_scale_factor = 0
                 env_noise_scale_factor = np.sqrt(total_env_var_needed)
 
-            # Combine all components.
+            # Combine all effects.
             phenotypes[:, phenotype_ind] = (
-                genetic_components[:, phenotype_ind] * genetic_scale_factor
-                + environmental_components[:, phenotype_ind] * env_component_scale_factor
+                all_genetic_effects * all_genetic_effects_scale_factor
+                + environmental_effects[:, phenotype_ind] * env_effects_scale_factor
                 + data.environmental_noise[:, phenotype_ind] * env_noise_scale_factor
             )
+
+        # For debugging purposes, store the genetic and environmental effects.
+        self.additive_genetic_effects = additive_genetic_effects
+        self.epistatic_genetic_effects = epistatic_genetic_effects
+        self.environmental_effects = environmental_effects
 
         return phenotypes
 

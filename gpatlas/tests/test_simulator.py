@@ -25,6 +25,8 @@ def test_maf_distribution(minor_allele_freq_range):
         num_samples=500,
         num_loci=1000,
         minor_allele_frequency_range=minor_allele_freq_range,
+        broad_sense_heritability=0.0,
+        narrow_sense_heritability=0.0,
     )
 
     simulator = GenotypePhenotypeSimulator(params)
@@ -192,40 +194,36 @@ def test_heritability_sibling_correlation():
 
     # For each heritability value, calculate sibling correlations.
     for heritability in heritabilities:
+        # Only additive effects (all heritability is narrow-sense).
+        params.narrow_sense_heritability = heritability
         params.broad_sense_heritability = heritability
+
         simulator = GenotypePhenotypeSimulator(params)
         sibling_1_data = simulator.simulate()
+
+        # Create a second sibling with the same genetics but different environment.
+        sibling_2_data = SimulationData(params=params)
+        sibling_2_data.genotypes = sibling_1_data.genotypes.copy()
+        sibling_2_data.effect_sizes = sibling_1_data.effect_sizes.copy()
+        sibling_2_data.causal_loci = sibling_1_data.causal_loci.copy()
+        sibling_2_data.epistatic_effects = sibling_1_data.epistatic_effects.copy()
+
+        sibling_2_data.environmental_factors = simulator._generate_environmental_factors()
+        sibling_2_data.environmental_effects = simulator._generate_environmental_effects()
+        sibling_2_data.environmental_noise = simulator._generate_environmental_noise()
+
+        sibling_2_data.phenotypes = simulator._calculate_phenotypes(params, sibling_2_data)
 
         # For each phenotype, calculate sibling correlation.
         for phenotype_idx in range(params.num_phenotypes):
             sibling_1_phenotype = sibling_1_data.phenotypes[:, phenotype_idx]
+            sibling_2_phenotype = sibling_2_data.phenotypes[:, phenotype_idx]
 
             # Skip phenotypes with near-zero variance.
             if np.var(sibling_1_phenotype) < 1e-6:
                 continue
 
-            # Create "siblings" by copying genotypes and regenerating environment.
-            sibling_2_data = SimulationData(params=params)
-            sibling_2_data.genotypes = sibling_1_data.genotypes.copy()
-            sibling_2_data.effect_sizes = sibling_1_data.effect_sizes.copy()
-            sibling_2_data.causal_loci = sibling_1_data.causal_loci.copy()
-            sibling_2_data.epistatic_effects = sibling_1_data.epistatic_effects.copy()
-
-            # Generate new environmental factors and effects.
-            sibling_2_data.environmental_factors = simulator._generate_environmental_factors()
-            sibling_2_data.environmental_effects = simulator._generate_environmental_effects()
-            sibling_2_data.environmental_noise = simulator._generate_environmental_noise()
-
-            # Calculate phenotypes for siblings with same genetics but different environment.
-            sibling_2_data.phenotypes = GenotypePhenotypeSimulator._calculate_phenotypes(
-                params, sibling_2_data
-            )
-
-            # Calculate correlation between siblings.
-            sibling_correlation = np.corrcoef(
-                sibling_1_phenotype, sibling_2_data.phenotypes[:, phenotype_idx]
-            )[0, 1]
-
+            sibling_correlation = np.corrcoef(sibling_1_phenotype, sibling_2_phenotype)[0, 1]
             correlations_by_phenotype[phenotype_idx].append(sibling_correlation)
 
             # For zero heritability, siblings should have low correlation.
@@ -266,7 +264,10 @@ def test_phenotypic_variance(heritability, env_factors_weight):
         pleiotropy_probability=0.0,
         epistasis_probability=0.0,
         env_factors_weight=env_factors_weight,
+        # There are no epistatic effects, so the narrow and broad sense heritabilities
+        # must be the same.
         broad_sense_heritability=heritability,
+        narrow_sense_heritability=heritability,
     )
 
     simulator = GenotypePhenotypeSimulator(params)
@@ -275,6 +276,44 @@ def test_phenotypic_variance(heritability, env_factors_weight):
     phenotype_variances = np.var(data.phenotypes, axis=0)
 
     # The tolerance was chosen empirically.
+    assert np.allclose(phenotype_variances, 1.0, atol=0.1)
+
+
+@pytest.mark.parametrize("epistasis_probability", [0.0, 0.3, 0.6, 1.0])
+@pytest.mark.parametrize("broad_sense_heritability", [0.0, 0.3, 0.6, 1.0])
+@pytest.mark.parametrize("narrow_sense_heritability_fraction", [0.0, 0.5, 1.0])
+def test_phenotypic_variance_with_epistasis(
+    epistasis_probability, broad_sense_heritability, narrow_sense_heritability_fraction
+):
+    """
+    Test that the phenotypic variance is always close to 1.0 even in the presence of epistasis
+    (i.e., non-additive effects).
+    """
+    # If there is no epistasis, the narrow-sense heritability must be greater than 0.
+    if epistasis_probability == 0.0 and narrow_sense_heritability_fraction < 1:
+        pytest.skip(
+            "Skipping test because there is no epistasis but broad-sense heritability is greater "
+            "than narrow-sense heritability."
+        )
+
+    params = SimulationParameters(
+        seed=RANDOM_SEED,
+        num_samples=10000,
+        num_loci=100,
+        num_phenotypes=3,
+        num_causal_loci_per_phenotype=10,
+        pleiotropy_probability=0.0,
+        epistasis_probability=epistasis_probability,
+        broad_sense_heritability=broad_sense_heritability,
+        narrow_sense_heritability=(broad_sense_heritability * narrow_sense_heritability_fraction),
+        # No environmental factors; all variance due to env noise.
+        env_factors_weight=0.0,
+    )
+
+    simulator = GenotypePhenotypeSimulator(params)
+    data = simulator.simulate()
+
+    phenotype_variances = np.var(data.phenotypes, axis=0)
     assert np.allclose(phenotype_variances, 1.0, atol=0.1)
 
 
@@ -324,6 +363,10 @@ def test_epistasis_rate(epistasis_probability):
         num_phenotypes=20,
         num_causal_loci_per_phenotype=10,
         epistasis_probability=epistasis_probability,
+        # We're only counting epistatic interactions, so we can simplify things by setting
+        # the heritability to 0.
+        broad_sense_heritability=0.0,
+        narrow_sense_heritability=0.0,
     )
 
     simulator = GenotypePhenotypeSimulator(params)
@@ -358,6 +401,8 @@ def test_heritability_with_model_fit(genome_type, heritability, effect_size_dist
         pleiotropy_probability=0.0,
         epistasis_probability=0.0,
         broad_sense_heritability=heritability,
+        # All heritability is narrow-sense (i.e., there are only additive effects).
+        narrow_sense_heritability=heritability,
         effect_size_distribution=effect_size_distribution,
     )
 
@@ -375,8 +420,8 @@ def test_heritability_with_model_fit(genome_type, heritability, effect_size_dist
 
 # We don't test with `heritability = 0.0` here because we're only interested
 # in the effect of epistasis when there is some heritability to model.
-@pytest.mark.parametrize("heritability", [0.3, 0.6, 1.0])
-def test_model_fit_with_epistasis(heritability):
+@pytest.mark.parametrize("broad_sense_heritability", [0.3, 0.6, 1.0])
+def test_model_fit_with_epistasis(broad_sense_heritability):
     """
     Test that the model fit gets worse as the rate of epistasis increases.
     """
@@ -395,7 +440,10 @@ def test_model_fit_with_epistasis(heritability):
             num_causal_loci_per_phenotype=10,
             pleiotropy_probability=0.0,
             epistasis_probability=epistasis_probability,
-            broad_sense_heritability=heritability,
+            broad_sense_heritability=broad_sense_heritability,
+            narrow_sense_heritability=(
+                broad_sense_heritability if epistasis_probability == 0 else 0
+            ),
             effect_size_distribution="normal",
         )
 
@@ -409,9 +457,9 @@ def test_model_fit_with_epistasis(heritability):
 
         # If there is epistasis present, the model fit should be worse than the heritability.
         if epistasis_probability > 0.0:
-            assert model_score < heritability
+            assert model_score < broad_sense_heritability
         else:
-            assert np.isclose(model_score, heritability, atol=0.1)
+            assert np.isclose(model_score, broad_sense_heritability, atol=0.1)
 
     # The model fit should get worse as the extent of epistasis increases.
     for ind in range(1, len(model_scores)):
@@ -436,6 +484,8 @@ def test_model_fit_with_pleiotropy(heritability, pleiotropy_probability):
         pleiotropy_probability=pleiotropy_probability,
         epistasis_probability=0.0,
         broad_sense_heritability=heritability,
+        # All heritability is narrow-sense (i.e., there are only additive effects).
+        narrow_sense_heritability=heritability,
         effect_size_distribution="normal",
     )
 
