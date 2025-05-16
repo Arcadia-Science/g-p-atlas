@@ -24,9 +24,6 @@ Homepage = "https://github.com/Arcadia-Science/g-p-atlas"
 Repository = "https://github.com/Arcadia-Science/g-p-atlas"
 Documentation = "https://github.com/Arcadia-Science/g-p-atlas/blob/main/README.md"
 
-[project.scripts]
-gpatlas = "gpatlas.cli.gpatlas:cli"
-
 [dependency-groups]
 dev = [
     "pre-commit==3.5.0",
@@ -35,10 +32,15 @@ dev = [
     "ruff==0.4.4",
 ]
 
+[project.optional-dependencies]
 modal = [
-    "modal==0.74.12",
-    "python-dotenv",
+    "modal>=0.74.12",
+    "python-dotenv>=1.1.0",
 ]
+
+[project.scripts]
+gpatlas = "gpatlas.cli.gpatlas:cli"
+
 
 [build-system]
 requires = ["uv", "setuptools"]
@@ -55,11 +57,6 @@ package-dir = { "" = "gpatlas" }
 [tool.setuptools.packages.find]
 where = ["gpatlas"]
 exclude = ["envs*", "ignore*", "external*"]
-
-
-[tool.poetry.group.modal.dependencies]
-modal = "^0.74.12"
-python-dotenv = "^1.1.0"
 
 [tool.ruff]
 # The directories to consider when resolving first- vs. third-party imports.
