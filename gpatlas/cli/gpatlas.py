@@ -215,7 +215,7 @@ def evaluate(
     # from using the genotypes or phenotypes, respectively, as the inputs to the model.
     filename_suffixes = ["ge", "pe"]
 
-    for input_type, filename_suffix in zip(input_types, filename_suffixes):
+    for input_type, filename_suffix in zip(input_types, filename_suffixes, strict=True):
         print(f"Predicting phenotypes for {len(test_loader)} samples...")
 
         true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
@@ -224,6 +224,7 @@ def evaluate(
         for array, name in zip(
             [true_phenotypes, decoded_phenotypes, embeddings],
             ["true_phenotypes", "decoded_phenotypes", "embeddings"],
+            strict=True,
         ):
             np.save(output_dirpath / "predictions" / f"{name}_{filename_suffix}.npy", array)
 
