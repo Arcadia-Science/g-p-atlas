@@ -35,6 +35,11 @@ dev = [
     "ruff==0.4.4",
 ]
 
+modal = [
+    "modal==0.74.12",
+    "python-dotenv",
+]
+
 [build-system]
 requires = ["uv", "setuptools"]
 build-backend = "setuptools.build_meta"
