@@ -149,17 +149,18 @@ def test_effect_size_distributions(effect_size_distribution):
     data = simulator.simulate()
 
     all_effects = []
-    for _, effects in data.effect_sizes.items():
+    for _, effects in data.additive_effect_sizes.items():
         all_effects.extend(effects.values())
 
     assert len(all_effects)
 
     if effect_size_distribution == "normal":
+        # We cannot check the variance because the effect sizes are scaled.
         assert np.isclose(np.mean(all_effects), 0.0, atol=0.1)
-        assert np.isclose(np.std(all_effects), 1.0, atol=0.1)
 
-    # For exponential and gamma, check both positive and negative values.
     if effect_size_distribution in ["exponential", "gamma"]:
+        assert np.mean(all_effects) > 0
+
         pos_count = sum(1 for e in all_effects if e > 0)
         neg_count = sum(1 for e in all_effects if e < 0)
 
@@ -204,7 +205,7 @@ def test_heritability_sibling_correlation():
         # Create a second sibling with the same genetics but different environment.
         sibling_2_data = SimulationData(params=params)
         sibling_2_data.genotypes = sibling_1_data.genotypes.copy()
-        sibling_2_data.effect_sizes = sibling_1_data.effect_sizes.copy()
+        sibling_2_data.additive_effect_sizes = sibling_1_data.additive_effect_sizes.copy()
         sibling_2_data.causal_loci = sibling_1_data.causal_loci.copy()
         sibling_2_data.epistatic_effects = sibling_1_data.epistatic_effects.copy()
 

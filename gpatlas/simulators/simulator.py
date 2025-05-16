@@ -77,6 +77,8 @@ class SimulationParameters(BaseModel):
     narrow_sense_heritability: float | list[float] = 0.4
 
     # The type and scale of the effect size distribution.
+    # TODO: add separate parameters for the distributions to use for additive, epistatic,
+    # and environmental effects.
     effect_size_distribution: Literal["normal", "exponential", "gamma"] = "normal"
     effect_size_scale: float = 1.0
 
@@ -165,9 +167,9 @@ class SimulationData(BaseModel):
     # Shape: `{phenotype_ind: [locus_ind]}`
     causal_loci: dict[int, list[int]] = {}
 
-    # A dict of dicts of effect sizes for each phenotype and locus.
+    # A dict of dicts of additive effect sizes for each phenotype and locus.
     # Shape: `{phenotype_ind: {locus_ind: effect_size}}`
-    effect_sizes: dict[int, dict[int, float]] = {}
+    additive_effect_sizes: dict[int, dict[int, float]] = {}
 
     # A list of tuples of pleiotropic effects.
     # Shape: `[(phenotype1, phenotype2, locus, effect_size)]`
@@ -245,7 +247,7 @@ class SimulationData(BaseModel):
 
             json_like_attrs = [
                 "causal_loci",
-                "effect_sizes",
+                "additive_effect_sizes",
                 "environmental_effects",
                 "pleiotropic_effects",
                 "epistatic_effects",
@@ -301,11 +303,11 @@ class GenotypePhenotypeSimulator:
             genotypes=genotypes,
             allele_frequencies=allele_frequencies,
             causal_loci=causal_loci,
-            effect_sizes=effect_sizes,
+            additive_effect_sizes=effect_sizes,
         )
 
         data.pleiotropic_effects = self._generate_pleiotropic_effects(
-            data.causal_loci, data.effect_sizes
+            data.causal_loci, data.additive_effect_sizes
         )
 
         data.epistatic_effects = self._generate_epistatic_effects(data.causal_loci)
@@ -423,6 +425,9 @@ class GenotypePhenotypeSimulator:
         Updates the `causal_loci` and `effect_sizes` dictionaries in-place
         to include the pleiotropic effects.
 
+        TODO: use a more realistic distribution to generate the pleiotropic effects
+        that allows for covariance between the effect sizes.
+
         Returns:
             pleiotropic_effects: list[tuple[int, int, float]]
                 A list of tuples of pleiotropic effects, where each tuple contains
@@ -454,6 +459,26 @@ class GenotypePhenotypeSimulator:
 
         return pleiotropic_effects
 
+    def _scale_additive_genetic_effects(
+        self, data: SimulationData, phenotype_ind: int, scale_factor: float
+    ) -> None:
+        """
+        Scale the additive genetic effect sizes for a given phenotype.
+        """
+        for locus_ind in data.additive_effect_sizes[phenotype_ind]:
+            data.additive_effect_sizes[phenotype_ind][locus_ind] *= scale_factor
+
+        for ind, (phenotype_1_ind, phenotype_2_ind, locus_ind, effect_size) in enumerate(
+            data.pleiotropic_effects
+        ):
+            if phenotype_2_ind == phenotype_ind:
+                data.pleiotropic_effects[ind] = (
+                    phenotype_1_ind,
+                    phenotype_2_ind,
+                    locus_ind,
+                    effect_size * scale_factor,
+                )
+
     def _generate_epistatic_effects(
         self, causal_loci: dict[int, list[int]]
     ) -> list[tuple[int, int, int, float]]:
@@ -479,6 +504,32 @@ class GenotypePhenotypeSimulator:
                         )
 
         return epistatic_effects
+
+    def _scale_epistatic_genetic_effects(
+        self, data: SimulationData, phenotype_ind: int, scale_factor: float
+    ) -> None:
+        """
+        Scale the epistatic genetic effect sizes for a given phenotype.
+        """
+        for ind, (phenotype_1_ind, locus_1_ind, locus_2_ind, effect_size) in enumerate(
+            data.epistatic_effects
+        ):
+            if phenotype_1_ind == phenotype_ind:
+                data.epistatic_effects[ind] = (
+                    phenotype_1_ind,
+                    locus_1_ind,
+                    locus_2_ind,
+                    effect_size * scale_factor,
+                )
+
+    def _scale_environmental_effects(
+        self, data: SimulationData, phenotype_ind: int, scale_factor: float
+    ) -> None:
+        """
+        Scale the environmental effect sizes for a given phenotype.
+        """
+        for env_factor_ind in data.environmental_effects[phenotype_ind]:
+            data.environmental_effects[phenotype_ind][env_factor_ind] *= scale_factor
 
     def _generate_environmental_factors(self) -> NDArray[np.float64]:
         """
@@ -536,7 +587,16 @@ class GenotypePhenotypeSimulator:
     ) -> NDArray[np.float64]:
         """
         Calculate phenotypes by combining all genetic and environmental effects with the appropriate
-        scale factors to achieve the desired heritability for each phenotype.
+        scale factors to achieve the target narrow- and broad-sense heritabilities
+        for each phenotype.
+
+        Note: the genetic effects are scaled in two steps.
+        First, the additive and epistatic effects are scaled and combined,
+        then the combined genetic effects are scaled to achieve the target broad-sense heritability
+        when combined with the environmental effects.
+        This two-step scaling is necessary because the additive and epistatic effects
+        may not be mean-centered, so the actual variance of the combined genetic effects
+        may differ from the desired broad-sense heritability without the second scaling step.
         """
         if (
             data.genotypes.size == 0
@@ -560,7 +620,7 @@ class GenotypePhenotypeSimulator:
 
         # Additive effects (including pleiotropic effects).
         for phenotype_ind in range(params.num_phenotypes):
-            for locus_ind, effect_size in data.effect_sizes[phenotype_ind].items():
+            for locus_ind, effect_size in data.additive_effect_sizes[phenotype_ind].items():
                 additive_genetic_effects[:, phenotype_ind] += (
                     data.genotypes[:, locus_ind] * effect_size
                 )
@@ -595,8 +655,10 @@ class GenotypePhenotypeSimulator:
 
             if epistatic_genetic_var < EPS and broad_sense_heritability > narrow_sense_heritability:
                 print(
-                    "Warning: the epistatic genetic effects have no variance, "
-                    "but broad-sense heritability is greater than narrow-sense heritability.",
+                    "Warning: the target broad-sense heritability is greater than "
+                    "the target narrow-sense heritability, but the epistatic genetic "
+                    "effects have no variance, so the actual narrow-sense heritability "
+                    "will be equal to broad-sense heritability."
                 )
 
             additive_genetic_scale_factor = np.sqrt(
@@ -609,17 +671,14 @@ class GenotypePhenotypeSimulator:
                 / (epistatic_genetic_var if epistatic_genetic_var > EPS else EPS)
             )
 
-            # We first scale the additive and epistatic genetic effects to achieve the target
-            # narrow-sense heritability within the genetic effects.
+            # Scale the additive and epistatic genetic effects to achieve the target
+            # narrow-sense heritability relative to the target broad-sense heritability.
             all_genetic_effects = (
                 additive_genetic_effects[:, phenotype_ind] * additive_genetic_scale_factor
                 + epistatic_genetic_effects[:, phenotype_ind] * epistatic_genetic_scale_factor
             )
 
-            # We then scale all genetic effects to achieve the target broad-sense heritability.
-            # We do this because the additive and epistatic effects may not be mean-centered,
-            # so the actual variance of their scaled sum may differ from the desired
-            # broad-sense heritability.
+            # Scale the combined genetic effects to achieve the target broad-sense heritability.
             all_genetic_effects_var = np.var(all_genetic_effects)
             env_factors_var = np.var(environmental_effects[:, phenotype_ind])
 
@@ -630,7 +689,8 @@ class GenotypePhenotypeSimulator:
 
             if all_genetic_effects_var < EPS and broad_sense_heritability > 0:
                 raise ValueError(
-                    "Genetic effects have no variance, but broad-sense heritability is non-zero."
+                    "Genetic effects have no variance, but the target broad-sense heritability "
+                    "is non-zero and cannot be achieved."
                 )
 
             # Calculate total environmental variance needed.
@@ -658,6 +718,20 @@ class GenotypePhenotypeSimulator:
                 + environmental_effects[:, phenotype_ind] * env_effects_scale_factor
                 + data.environmental_noise[:, phenotype_ind] * env_noise_scale_factor
             )
+
+            # Scale all of the effect sizes so that they match the scale of their corresponding
+            # contributions to the phenotype.
+            self._scale_additive_genetic_effects(
+                data,
+                phenotype_ind,
+                additive_genetic_scale_factor * all_genetic_effects_scale_factor,
+            )
+            self._scale_epistatic_genetic_effects(
+                data,
+                phenotype_ind,
+                epistatic_genetic_scale_factor * all_genetic_effects_scale_factor,
+            )
+            self._scale_environmental_effects(data, phenotype_ind, env_effects_scale_factor)
 
         # For debugging purposes, store the genetic and environmental effects.
         self.additive_genetic_effects = additive_genetic_effects
