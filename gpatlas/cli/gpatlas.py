@@ -1,4 +1,5 @@
 import pathlib
+import shutil
 from typing import Literal
 
 import click
@@ -13,25 +14,16 @@ from gpatlas.utils import compare_true_and_predicted_phenotypes
 
 
 def load_configs(
-    model_config_filepath: pathlib.Path | None,
-    trainer_config_filepath: pathlib.Path | None,
+    model_config_filepath: pathlib.Path, trainer_config_filepath: pathlib.Path
 ) -> tuple[GPAtlasModelConfig, GPAtlasTrainerConfig]:
     """
     Load the model and trainer configuration files from the output directory.
     """
-    model_config: GPAtlasModelConfig
-    if model_config_filepath is None:
-        model_config = GPAtlasModelConfig()
-    else:
-        with open(model_config_filepath) as file:
-            model_config = GPAtlasModelConfig(**(yaml.safe_load(file) or {}))
+    with open(model_config_filepath) as file:
+        model_config = GPAtlasModelConfig(**(yaml.safe_load(file) or {}))
 
-    trainer_config: GPAtlasTrainerConfig
-    if trainer_config_filepath is None:
-        trainer_config = GPAtlasTrainerConfig()
-    else:
-        with open(trainer_config_filepath) as file:
-            trainer_config = GPAtlasTrainerConfig(**(yaml.safe_load(file) or {}))
+    with open(trainer_config_filepath) as file:
+        trainer_config = GPAtlasTrainerConfig(**(yaml.safe_load(file) or {}))
 
     return model_config, trainer_config
 
@@ -51,16 +43,11 @@ def dump_configs(
         yaml.safe_dump(trainer_config.model_dump(), file)
 
 
-@click.group()
-def cli():
-    pass
-
-
-@cli.command()
+@click.command()
 @click.option(
     "dataset_dirpath",
     "--dataset",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    type=click.Path(path_type=pathlib.Path),
     required=True,
     help="Path to the directory containing the training and test dataset files.",
 )
@@ -74,21 +61,21 @@ def cli():
 @click.option(
     "model_config_filepath",
     "--model-config",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    type=click.Path(path_type=pathlib.Path),
     required=False,
     help="Optional path to the model configuration file.",
 )
 @click.option(
     "trainer_config_filepath",
-    "--train-config",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    "--training-config",
+    type=click.Path(path_type=pathlib.Path),
     required=False,
     help="Optional path to the training configuration file.",
 )
 @click.option(
     "hot_start_checkpoint_filepath",
     "--hot-start-checkpoint",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    type=click.Path(path_type=pathlib.Path),
     required=False,
     help="Optional path to the checkpoint file from which to hot-start the training process.",
 )
@@ -97,22 +84,39 @@ def cli():
     is_flag=True,
     help="Enable anomaly detection.",
 )
-def train(
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    help="Overwrite the output directory if it already exists.",
+)
+def train_command(
     dataset_dirpath: pathlib.Path,
     output_dirpath: pathlib.Path,
     model_config_filepath: pathlib.Path | None,
     trainer_config_filepath: pathlib.Path | None,
     hot_start_checkpoint_filepath: pathlib.Path | None,
     detect_anomaly: bool,
+    overwrite: bool,
 ):
     """
     Train a G-P Atlas model.
     """
+    if output_dirpath.exists():
+        if overwrite:
+            shutil.rmtree(output_dirpath)
+        else:
+            raise FileExistsError(f"Output directory {output_dirpath} already exists.")
 
     # Create the output directory structure.
     output_dirpath.mkdir(parents=True, exist_ok=True)
     for subdir in ["checkpoints", "plots", "predictions", "logs"]:
         (output_dirpath / subdir).mkdir(parents=True, exist_ok=True)
+
+    if model_config_filepath is None:
+        model_config_filepath = dataset_dirpath / "model-config.yaml"
+
+    if trainer_config_filepath is None:
+        trainer_config_filepath = dataset_dirpath / "train-config.yaml"
 
     model_config, trainer_config = load_configs(model_config_filepath, trainer_config_filepath)
 
@@ -136,7 +140,11 @@ def train(
     if hot_start_checkpoint_filepath is not None:
         model.load_from_checkpoint(hot_start_checkpoint_filepath)
 
-    trainer = GPAtlasTrainer(model=model, config=trainer_config)
+    trainer = GPAtlasTrainer(
+        model=model,
+        config=trainer_config,
+        checkpoint_filepath=output_dirpath / "checkpoints" / "best_model_checkpoint.pt",
+    )
 
     if detect_anomaly:
         with torch.autograd.set_detect_anomaly(True, check_nan=True):
@@ -146,17 +154,12 @@ def train(
 
     trainer.plot_training_losses(filepath=output_dirpath / "plots" / "training_losses.svg")
 
-    # TODO: save checkpoints at regular intervals during training.
-    model.save_to_checkpoint(
-        checkpoint_filepath=output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
-    )
 
-
-@cli.command()
+@click.command()
 @click.option(
     "dataset_dirpath",
     "--dataset",
-    type=click.Path(exists=True, path_type=pathlib.Path),
+    type=click.Path(path_type=pathlib.Path),
     required=True,
     help="Path to the directory containing the training and test dataset files.",
 )
@@ -172,14 +175,16 @@ def train(
     is_flag=True,
     help="Calculate feature importances for the genotype and phenotype encoders.",
 )
-def evaluate(
+def evaluate_command(
     dataset_dirpath: pathlib.Path, output_dirpath: pathlib.Path, calculate_feature_importances: bool
 ):
     """
-    Evaluate a trained G-P Atlas model.
-
-    Note: the evaluation uses the final model checkpoint saved during training.
+    Evaluate a trained G-P Atlas model using the best model checkpoint saved during training.
     """
+
+    # Create the output subdirectories used by the evaluation functions.
+    for subdir in ["plots", "predictions"]:
+        (output_dirpath / subdir).mkdir(parents=True, exist_ok=True)
 
     model_config, trainer_config = load_configs(
         model_config_filepath=output_dirpath / "model-config.yaml",
@@ -188,7 +193,7 @@ def evaluate(
 
     model = GPAtlasModel(config=model_config)
 
-    checkpoint_filepath = output_dirpath / "checkpoints" / "final_model_checkpoint.pt"
+    checkpoint_filepath = output_dirpath / "checkpoints" / "best_model_checkpoint.pt"
     model.load_from_checkpoint(checkpoint_filepath)
     print(f"Loaded model from {checkpoint_filepath}")
 
@@ -201,8 +206,7 @@ def evaluate(
 
     test_loader = torch.utils.data.DataLoader(
         dataset=test_dataset,
-        # TODO: why use a batch size of 1?
-        batch_size=1,
+        batch_size=32,
         num_workers=trainer_config.num_cores,
         # Important: we do *not* shuffle the test set so that the order of the samples
         # is preserved across evaluation loops.
@@ -237,7 +241,10 @@ def evaluate(
         )
 
         if calculate_feature_importances:
-            print(f"Calculating feature importances for {len(test_loader)} samples...")
+            print(
+                f"Calculating feature importances for {len(test_loader)} samples "
+                f"using the {input_type} encoder..."
+            )
             feature_attributions = trainer.calculate_feature_importances(
                 loader=test_loader, input_type=input_type
             )
@@ -245,6 +252,15 @@ def evaluate(
                 output_dirpath / "predictions" / f"feature_attributions_{filename_suffix}.npy"
             )
             np.save(feature_attributions_filepath, feature_attributions)
+
+
+@click.group()
+def cli():
+    pass
+
+
+cli.add_command(train_command, name="train")
+cli.add_command(evaluate_command, name="eval")
 
 
 if __name__ == "__main__":

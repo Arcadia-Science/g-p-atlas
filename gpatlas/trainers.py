@@ -8,11 +8,14 @@ import torch.nn.functional as F
 from captum.attr import FeatureAblation
 from matplotlib import pyplot as plt
 from numpy.typing import NDArray
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+from tqdm import tqdm
 
 from gpatlas.constants import EPS
 from gpatlas.models import GPAtlasModel
 from gpatlas.utils import get_device
+
+SEPARATOR = " | "
 
 
 class GPAtlasTrainerConfig(BaseModel):
@@ -22,10 +25,10 @@ class GPAtlasTrainerConfig(BaseModel):
 
     seed: int = 47
 
-    num_cores: int = 14  # this was originally `args.n_cpu`.
+    num_cores: int = 1  # this was originally `args.n_cpu`.
 
-    # TODO: add early-stopping criteria.
     num_epochs: int = 100
+    warmup_epoch_fraction: float = 0.8
 
     batch_size: int = 16
     learning_rate: float = 0.001  # This was originally `args.lr_r`.
@@ -37,6 +40,14 @@ class GPAtlasTrainerConfig(BaseModel):
     genotype_noise_scale: float = 0.3  # This was originally `1 - args.gen_noise`.
 
     l1_lambda: float = 0.8
+
+    @computed_field
+    @property
+    def num_warmup_epochs(self) -> int:
+        """
+        The number of warmup epochs before the model starts saving checkpoints.
+        """
+        return int(self.num_epochs * self.warmup_epoch_fraction)
 
 
 class GPAtlasTrainer:
@@ -53,12 +64,18 @@ class GPAtlasTrainer:
     and calculating feature importances for both genotypes and phenotypes.
     """
 
-    def __init__(self, model: GPAtlasModel, config: GPAtlasTrainerConfig) -> None:
+    def __init__(
+        self,
+        model: GPAtlasModel,
+        config: GPAtlasTrainerConfig,
+        checkpoint_filepath: pathlib.Path | None = None,
+    ) -> None:
         """
         Initialize a trainer for a G-P Atlas model.
         """
         self.model = model
         self.config = config
+        self.checkpoint_filepath = checkpoint_filepath
 
         torch.manual_seed(self.config.seed)
 
@@ -96,10 +113,12 @@ class GPAtlasTrainer:
         self.model.phenotype_encoder.train()
         self.model.phenotype_decoder.train()
 
+        best_loss = float("inf")
         training_losses: list[float] = []
 
         for epoch_idx in range(self.config.num_epochs):
             epoch_start_time = time.time()
+            epoch_loss = 0
 
             for _, phenotypes in loader:
                 phenotypes = phenotypes.to(self.device)
@@ -125,14 +144,30 @@ class GPAtlasTrainer:
                 self.phenotype_decoder_optimizer.step()
                 self.phenotype_encoder_optimizer.step()
 
-                training_losses.append(float(loss.detach()))
+                epoch_loss += float(loss.item())
 
-            elapsed_time = time.time() - epoch_start_time
+            epoch_loss /= len(loader)
+            training_losses.append(epoch_loss)
+            epoch_elapsed_time = time.time() - epoch_start_time
+
             print(
-                f"Epoch: {epoch_idx}, "
-                f"Training loss: {training_losses[-1]}, "
-                f"Epoch duration: {elapsed_time}"
+                SEPARATOR.join(
+                    [
+                        f"Epoch: {epoch_idx}",
+                        f"Training loss: {epoch_loss:.2f}",
+                        f"Epoch duration: {epoch_elapsed_time:.2f}s",
+                    ]
+                )
             )
+
+            if (
+                epoch_idx > self.config.num_warmup_epochs
+                and epoch_loss < best_loss
+                and self.checkpoint_filepath is not None
+            ):
+                best_loss = epoch_loss
+                self.model.save_to_checkpoint(checkpoint_filepath=self.checkpoint_filepath)
+                print(f"Saved new best model to {self.checkpoint_filepath}")
 
         self.phenotype_encoder_decoder_training_losses = training_losses
 
@@ -144,10 +179,12 @@ class GPAtlasTrainer:
         """
         self.model.genotype_encoder.train()
 
+        best_loss = float("inf")
         training_losses: list[float] = []
 
         for epoch_idx in range(self.config.num_epochs):
             epoch_start_time = time.time()
+            epoch_loss = 0
 
             for genotypes, phenotypes in loader:
                 genotypes = genotypes.to(self.device)
@@ -177,18 +214,37 @@ class GPAtlasTrainer:
                 loss.backward()
                 self.genotype_encoder_optimizer.step()
 
-                training_losses.append(float(loss.detach()))
+                epoch_loss += float(loss.detach())
 
-            elapsed_time = time.time() - epoch_start_time
+            epoch_loss /= len(loader)
+            training_losses.append(epoch_loss)
+            epoch_elapsed_time = time.time() - epoch_start_time
+
             print(
-                f"Epoch: {epoch_idx}, "
-                f"Training loss: {training_losses[-1]}, "
-                f"Epoch duration: {elapsed_time}"
+                SEPARATOR.join(
+                    [
+                        f"Epoch: {epoch_idx}",
+                        f"Training loss: {epoch_loss:.2f}",
+                        f"Epoch duration: {epoch_elapsed_time:.2f}s",
+                    ]
+                )
             )
+
+            if (
+                epoch_idx > self.config.num_warmup_epochs
+                and epoch_loss < best_loss
+                and self.checkpoint_filepath is not None
+            ):
+                best_loss = epoch_loss
+                self.model.save_to_checkpoint(checkpoint_filepath=self.checkpoint_filepath)
+                print(f"Saved new best model to {self.checkpoint_filepath}")
 
         self.genotype_encoder_training_losses = training_losses
 
-    def train(self, loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]]) -> None:
+    def train(
+        self,
+        loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
+    ) -> None:
         """
         Train the model.
         """
@@ -197,7 +253,11 @@ class GPAtlasTrainer:
 
         # First train the phenotype encoder-decoder.
         print("Training phenotype encoder-decoder...")
-        self._train_phenotype_encoder_decoder(loader=loader)
+        self._train_phenotype_encoder_decoder(loader)
+
+        # Load the best model checkpoint after training the phenotype encoder-decoder.
+        if self.checkpoint_filepath is not None:
+            self.model.load_from_checkpoint(self.checkpoint_filepath)
 
         # Freeze the phenotype encoder-decoder before training the genotype encoder.
         print("Freezing phenotype encoder-decoder...")
@@ -205,7 +265,7 @@ class GPAtlasTrainer:
 
         # With the phenotype encoder-decoder frozen, train the genotype encoder.
         print("Training genotype encoder...")
-        self._train_genotype_encoder(loader=loader)
+        self._train_genotype_encoder(loader)
 
     def plot_training_losses(self, filepath: pathlib.Path) -> None:
         """
@@ -231,22 +291,26 @@ class GPAtlasTrainer:
         self.model.to(self.device)
         self.model.eval()
 
+        num_samples = len(loader.dataset)  # type: ignore
+
         all_true_phenotypes = np.zeros(
-            (len(loader), self.model.config.num_input_phenotypes),
+            (num_samples, self.model.config.num_input_phenotypes),
             dtype=np.float32,
         )
         all_decoded_phenotypes = np.zeros(
-            (len(loader), self.model.config.num_output_phenotypes),
+            (num_samples, self.model.config.num_output_phenotypes),
             dtype=np.float32,
         )
         all_embeddings = np.zeros(
-            (len(loader), self.model.config.latent_dim),
+            (num_samples, self.model.config.latent_dim),
             dtype=np.float32,
         )
 
-        for ind, (genotypes, phenotypes) in enumerate(loader):
+        start_idx = 0
+        for genotypes, phenotypes in loader:
             genotypes = genotypes.to(self.device)
             phenotypes = phenotypes.to(self.device)
+            batch_size = genotypes.shape[0]
 
             with torch.no_grad():
                 embeddings = (
@@ -256,9 +320,13 @@ class GPAtlasTrainer:
                 )
                 decoded_phenotypes = self.model.phenotype_decoder(embeddings)
 
-            all_true_phenotypes[ind] = phenotypes.detach().cpu().numpy()
-            all_decoded_phenotypes[ind] = decoded_phenotypes.detach().cpu().numpy()
-            all_embeddings[ind] = embeddings.detach().cpu().numpy()
+            end_idx = start_idx + batch_size
+
+            all_true_phenotypes[start_idx:end_idx, :] = phenotypes.detach().cpu().numpy()
+            all_decoded_phenotypes[start_idx:end_idx, :] = decoded_phenotypes.detach().cpu().numpy()
+            all_embeddings[start_idx:end_idx, :] = embeddings.detach().cpu().numpy()
+
+            start_idx = end_idx
 
         return (all_true_phenotypes, all_decoded_phenotypes, all_embeddings)
 
@@ -290,15 +358,22 @@ class GPAtlasTrainer:
 
         ablator = FeatureAblation(forward_func)
 
+        num_samples = len(loader.dataset)  # type: ignore
         num_input_features = self.model.config.num_loci * self.model.config.num_alleles
-        attributions = np.zeros((len(loader), num_input_features), dtype=np.float32)
+        attributions = np.zeros((num_samples, num_input_features), dtype=np.float32)
 
-        for ind, (genotypes, phenotypes) in enumerate(loader):
+        start_idx = 0
+        for genotypes, phenotypes in tqdm(loader, total=len(loader)):
             genotypes = genotypes.to(self.device)
             phenotypes = phenotypes.to(self.device)
+            batch_size = genotypes.shape[0]
+
             with torch.no_grad():
                 attribution = ablator.attribute(genotypes, additional_forward_args=phenotypes)
-            attributions[ind] = attribution.squeeze().detach().cpu().numpy()
+
+            end_idx = start_idx + batch_size
+            attributions[start_idx:end_idx, :] = attribution.squeeze().detach().cpu().numpy()
+            start_idx = end_idx
 
         return attributions
 
@@ -326,14 +401,21 @@ class GPAtlasTrainer:
 
         ablator = FeatureAblation(forward_func)
 
+        num_samples = len(loader.dataset)  # type: ignore
         num_input_features = self.model.config.num_input_phenotypes
-        attributions = np.zeros((len(loader), num_input_features), dtype=np.float32)
+        attributions = np.zeros((num_samples, num_input_features), dtype=np.float32)
 
-        for ind, (_, phenotypes) in enumerate(loader):
+        start_idx = 0
+        for _, phenotypes in tqdm(loader, total=len(loader)):
             phenotypes = phenotypes.to(self.device)
+            batch_size = phenotypes.shape[0]
+
             with torch.no_grad():
                 attribution = ablator.attribute(phenotypes, additional_forward_args=phenotypes)
-            attributions[ind] = attribution.squeeze().detach().cpu().numpy()
+
+            end_idx = start_idx + batch_size
+            attributions[start_idx:end_idx, :] = attribution.squeeze().detach().cpu().numpy()
+            start_idx = end_idx
 
         return attributions
 

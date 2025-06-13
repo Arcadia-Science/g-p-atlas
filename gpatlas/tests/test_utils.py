@@ -74,11 +74,11 @@ def test_compare_true_and_predicted_phenotypes(tmp_path: pathlib.Path):
 
     # Check that the expected files were created.
     expected_files = [
-        f"true_vs_pred_phenotypes_{suffix}.svg",
-        f"true_vs_pred_phenotypes_pearson_correlation_{suffix}.svg",
-        f"true_vs_pred_phenotypes_mse_{suffix}.svg",
-        f"true_vs_pred_phenotypes_mape_{suffix}.svg",
-        f"true_vs_pred_phenotypes_r2_{suffix}.svg",
+        f"true_vs_pred_phenotypes_{suffix}.png",
+        f"true_vs_pred_phenotypes_pearson_correlation_{suffix}.png",
+        f"true_vs_pred_phenotypes_mse_{suffix}.png",
+        f"true_vs_pred_phenotypes_mape_{suffix}.png",
+        f"true_vs_pred_phenotypes_r2_{suffix}.png",
         f"true_vs_pred_phenotypes_summary_stats_{suffix}.json",
     ]
     for filename in expected_files:

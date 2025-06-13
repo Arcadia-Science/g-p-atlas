@@ -11,6 +11,20 @@ from numpy.typing import NDArray
 from gpatlas.constants import EPS
 
 
+def find_package_root_dir() -> pathlib.Path | None:
+    """
+    Find the nearest package root directory.
+
+    If no package root is found, return `None`.
+    """
+    current_dir = pathlib.Path(__file__).parent
+    while not current_dir.joinpath("pyproject.toml").exists():
+        current_dir = current_dir.parent
+        if current_dir == pathlib.Path("/"):
+            return None
+    return current_dir
+
+
 def get_device(device_name: str | None = None) -> torch.device:
     """
     Get the PyTorch device to use for training.
@@ -65,12 +79,12 @@ def compare_true_and_predicted_phenotypes(
 
     # Plot decoded phenotypes vs. true phenotypes.
     for ind in range(num_phenotypes):
-        plt.plot(true_phenotypes[:, ind], decoded_phenotypes[:, ind], "o")
+        plt.plot(true_phenotypes[:, ind], decoded_phenotypes[:, ind], "o", alpha=0.3)
 
     plt.xlabel("True phenotype")
     plt.ylabel("Predicted phenotype")
     plt.gca().set_aspect("equal")
-    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_{suffix}.png")
     plt.close()
 
     summary_stats: dict[str, list[float]] = {}
@@ -82,7 +96,7 @@ def compare_true_and_predicted_phenotypes(
     ]
     summary_stats["pearson_correlation"] = pearson_correlations
     plt.hist(pearson_correlations, bins=20)
-    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_pearson_correlation_{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_pearson_correlation_{suffix}.png")
     plt.close()
 
     # Mean squared error.
@@ -91,7 +105,7 @@ def compare_true_and_predicted_phenotypes(
     )
     summary_stats["mse"] = mse_values.astype(float).tolist()  # type: ignore
     plt.hist(mse_values, bins=20)
-    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mse_{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mse_{suffix}.png")
     plt.close()
 
     # Mean absolute percentage error.
@@ -101,7 +115,7 @@ def compare_true_and_predicted_phenotypes(
     ]
     summary_stats["mape"] = mape_values
     plt.hist(mape_values, bins=20)
-    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mape_{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_mape_{suffix}.png")
     plt.close()
 
     # R-squared score (coefficient of determination).
@@ -110,7 +124,7 @@ def compare_true_and_predicted_phenotypes(
     )
     summary_stats["r2"] = r2_values.astype(float).tolist()  # type: ignore
     plt.hist(r2_values, bins=20)
-    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_r2_{suffix}.svg")
+    plt.savefig(output_dirpath / f"true_vs_pred_phenotypes_r2_{suffix}.png")
     plt.close()
 
     with open(output_dirpath / f"true_vs_pred_phenotypes_summary_stats_{suffix}.json", "w") as file:
