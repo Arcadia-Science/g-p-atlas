@@ -8,7 +8,6 @@ This repo contains a Python package called `g-p-atlas`.
 The repo is organized as follows:
 
 ```
-envs/        # Conda environment file for poetry.
 external/    # Snapshots of scripts from the original g-p-atlas repo.
 gpatlas/     # The `gpatlas` package.
 scripts/     # Scripts for simulating genotype-phenotype data.
@@ -72,36 +71,23 @@ The repo contains two scripts for simulating genotype-phenotype data.
 
 ### Environment setup
 
-We use poetry for dependency management and build tooling. You can either install poetry globally or within a virtual environment in order to isolate poetry itself. We recommend the latter. First, create a new conda environment from the `dev.yml` environment file:
+We use [`uv`](https://docs.astral.sh/uv/) for dependency management. First, [install `uv`](https://docs.astral.sh/uv/getting-started/installation/) globally.
+
+Next, install dependencies:
 
 ```bash
-conda env create -n g-p-atlas-dev -f envs/dev.yml
-conda activate g-p-atlas-dev
+uv sync --all-groups
 ```
 
-Next, install dependencies, including the development dependencies:
+It is convenient to work within the `uv` virtual environment. To do so, run the following command:
 
 ```bash
-poetry install --no-root --with dev
+source .venv/bin/activate
 ```
 
-If you have installed poetry globally, activate the poetry virtual environment:
-
-```bash
-poetry shell
-```
-
-Poetry detects and respects existing virtual environments, so if you are using poetry within a conda environment, this step is not needed.
-
-Finally, install the package itself in editable mode:
-
-```bash
-pip install -e .
-```
+Now, the `gpatlas` CLI will be available. See above for usage instructions.
 
 ### Formatting and linting
-
-If you have installed poetry globally, make sure to run `poetry shell` before running the commands below.
 
 To format the code, use the following command:
 
@@ -139,22 +125,22 @@ make test
 
 ### Managing dependencies
 
-We use poetry to manage dependencies. To add a new dependency, use the following command:
+To add a new dependency, use the following command:
 
 ```bash
-poetry add some-package
+uv add some-package
 ```
 
 To add a new development dependency, use the following command:
 
 ```bash
-poetry add -G dev some-dev-package
+uv add --dev some-dev-package
 ```
 
 To update a dependency, use the following command:
 
 ```bash
-poetry update some-package
+uv update some-package
 ```
 
-Whenever you add or update a dependency, poetry will automatically update both `pyproject.toml` and the `poetry.lock` file. Make sure to commit the changes to these files to the repo.
+Whenever you add or update a dependency, `uv` will automatically update both `pyproject.toml` and the `uv.lock` file. Make sure to commit the changes to **both** of these files to the repo.
