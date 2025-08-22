@@ -468,7 +468,7 @@ wheels = [
 ]
 
 [[package]]
-name = "g-p-atlas"
+name = "gpatlas"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [

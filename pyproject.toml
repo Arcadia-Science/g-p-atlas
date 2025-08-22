@@ -1,5 +1,5 @@
 [project]
-name = "g-p-atlas"
+name = "gpatlas"
 version = "0.0.0"
 description = "A Python package for training and evaluating nonlinear genotype-phenotype models."
 authors = [{ name = "Arcadia Science", email = "info@arcadiascience.com" }]
@@ -33,6 +33,7 @@ dev = [
 ]
 
 [project.optional-dependencies]
+
 modal = [
     "modal>=0.74.12",
     "python-dotenv>=1.1.0",
@@ -52,11 +53,7 @@ default-groups = [
 ]
 
 [tool.setuptools]
-package-dir = { "" = "gpatlas" }
-
-[tool.setuptools.packages.find]
-where = ["gpatlas"]
-exclude = ["envs*", "ignore*", "external*"]
+packages = ["gpatlas"]
 
 [tool.ruff]
 # The directories to consider when resolving first- vs. third-party imports.
