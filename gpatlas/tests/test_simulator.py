@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from sklearn.linear_model import Lasso
 
-from gpatlas.simulators.simulator import (
+from gpatlas.simulations.simulator import (
     GenotypePhenotypeSimulator,
     SimulationData,
     SimulationParameters,

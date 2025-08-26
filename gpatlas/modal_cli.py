@@ -4,7 +4,7 @@ from typing import Any
 import click
 import modal
 
-from gpatlas.cli.gpatlas import evaluate_command, train_command
+from gpatlas.cli import evaluate_command, train_command
 from gpatlas.utils import find_package_root_dir
 
 GPU_NAME = "a10g"
@@ -69,7 +69,7 @@ def run_command_on_modal(command_name: str, command_kwargs: dict[str, Any]):
     This function is intended to be decorated with an `app.function` decorator.
     """
     # Import the original CLI commands on modal.
-    from gpatlas.cli.gpatlas import evaluate_command, train_command
+    from gpatlas.cli import evaluate_command, train_command
 
     commands = {
         "train": train_command,

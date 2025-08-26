@@ -33,15 +33,14 @@ dev = [
 ]
 
 [project.optional-dependencies]
-
 modal = [
     "modal>=0.74.12",
     "python-dotenv>=1.1.0",
 ]
 
 [project.scripts]
-gpatlas = "gpatlas.cli.gpatlas:cli"
-
+gpatlas = "gpatlas.cli:cli"
+gpatlas-modal = "gpatlas.modal_cli:cli"
 
 [build-system]
 requires = ["uv", "setuptools"]
