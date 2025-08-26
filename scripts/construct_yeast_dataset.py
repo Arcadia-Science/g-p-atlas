@@ -1,3 +1,14 @@
+#!/usr/bin/env -S uv run
+# /// script
+# dependencies = [
+#     "click~=8.1",
+#     "h5py~=3.13",
+#     "numpy~=1.26",
+# ]
+# ///
+"""
+Construct training and test sets from the yeast dataset in the `2025-g-p-atlas` repo.
+"""
 import gzip
 import pathlib
 import pickle
@@ -11,7 +22,8 @@ def construct_yeast_dataset(
     original_dataset_path: pathlib.Path, output_dirpath: pathlib.Path, train_test_split: float
 ) -> None:
     """
-    Construct training and test sets for the yeast dataset from the `2025-g-p-atlas` repo.
+    Construct training and test sets for the yeast dataset from the original `2025-g-p-atlas` repo
+    accompanying the 2025 G-P Atlas pub.
 
     original_dataset_path: local path to the original dataset from the `2025-g-p-atlas` repo.
         This should be a pickled dictionary with keys "genotypes" and "phenotypes".
@@ -20,12 +32,9 @@ def construct_yeast_dataset(
     output_dirpath: local path to the directory where the constructed dataset will be stored.
     train_test_split: fraction of the dataset to use for training.
     """
-    if original_dataset_path.suffix == ".gz":
-        with gzip.open(original_dataset_path, "rb") as f:
-            data = pickle.load(f)
-    else:
-        with open(original_dataset_path, "rb") as f:
-            data = pickle.load(f)
+    open_fn = gzip.open if original_dataset_path.suffix == ".gz" else open
+    with open_fn(original_dataset_path, "rb") as f:
+        data = pickle.load(f)
 
     output_dirpath.mkdir(parents=True, exist_ok=True)
 

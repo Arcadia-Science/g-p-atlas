@@ -1,23 +1,32 @@
+# G-P Atlas
 
-# g-p-atlas
+This repo contains a Python package called `gpatlas`.
 
-This repo contains a Python package called `g-p-atlas`.
+TODO: add a description of the package and context, link to the GPA pub, etc.
 
 ## Directory structure
 
-The repo is organized as follows:
+This repo is organized as follows:
 
 ```
-external/    # Snapshots of scripts from the original g-p-atlas repo.
-gpatlas/     # The `gpatlas` package.
-scripts/     # Scripts for simulating genotype-phenotype data.
+g-p-atlas/
+├── external/    # Snapshots of scripts from the original 2025-g-p-atlas repo (for reference).
+├── scripts/     # Standalone scripts useful for troubleshooting and development.
+└── gpatlas/     # The `gpatlas` package.
+    ├── tests/        # Unit tests.
+    ├── cli.py        # Main command-line interface for the `gpatlas` package.
+    ├── constants.py  # Constants used throughout the package.
+    ├── datasets.py   # Dataset classes.
+    ├── layers.py     # Custom PyTorch layers.
+    ├── modal_cli.py  # Command-line interface for using the `gpatlas` package on Modal.
+    ├── models.py     # The main G-P Atlas model.
+    ├── trainers.py   # Model training scripts.
+    └── utils.py
 ```
 
 ## Usage
 
-This package is still under development and does not have a formal versioned release or a release on PyPI. To install it, follow the direction below under "Environment setup" below.
-
-Once the package is installed, the `gpatlas` CLI will be available. To train a model, run the `train` CLI script:
+This package does not have a formal versioned release or a release on PyPI. To install it, follow the directions under "Development" below. Once the package is installed, the `gpatlas` CLI will be available. To train a model, use the `train` command:
 
 ```bash
 gpatlas train \
@@ -27,13 +36,11 @@ gpatlas train \
     --train-config /path/to/trainer-config.yaml
 ```
 
-The `--dataset` directory should contain a `train-data.h5` file with the training data and a `test-data.h5` file with the test data. See below for more information on the format of these files.
+The `--dataset` directory should contain two HDF5 files: `train-data.h5` and `test-data.h5`, with the training data and test data, respectively. See below for more information on the format of these files.
 
-The `--output` directory will contain the trained model, plots, and other artifacts.
+The `model-config.yaml` and `trainer-config.yaml` files should specify the model architecture and the training configuration. The schema for these config files is defined in `gpatlas/models.py` and `gpatlas/trainers.py`, respectively. The `--model-config` and `--trainer-config` flags can be ommitted if `model-config.yaml` and `trainer-config.yaml` are located in the dataset directory.
 
-The `model-config.yaml` file should specify the model architecture and the `trainer-config.yaml` file should specify the training configuration. Note that the model architecture must match the dimensions of the data in the `train-data.h5` and `test-data.h5` files. The schema for these files is defined in `gpatlas/models.py` and `gpatlas/trainers.py`, respectively.
-
-After running this command, the output directory will contain the following files:
+The `--output` directory will contain the following files and directories:
 
 ```
 /path/to/output/directory
@@ -45,7 +52,7 @@ After running this command, the output directory will contain the following file
 └── train-config.yaml
 ```
 
-To evaluate a trained model, run the `evaluate` CLI script:
+To evaluate a trained model, use the `evaluate` command:
 
 ```bash
 gpatlas evaluate \
@@ -57,15 +64,15 @@ This will generate plots in the `plots/` directory and save the predicted phenot
 
 ### Dataset format
 
-The dataset directory should contain a `train-data.h5` file with the training data and a `test-data.h5` file with the test data. These files should contain two datasets: `genotypes` and `phenotypes`. The `genotypes` dataset should be an array of one-hot encoded allelic states for each sample and locus. Its shape should be `(num_samples, num_loci, num_allelic_states)`. (In most cases, `num_allelic_states` is either 2 for bi-allelic loci or 3 for bi-allelic loci in a diploid organism.) The `phenotypes` dataset is an array of quantitative phenotypes with dimensions `(num_samples, num_phenotypes)`. The order of the samples in the first dimension of the two datasets is assumed to match.
+The dataset directory should contain two HDF5 files: `train-data.h5` and `test-data.h5`, with the training data and test data, respectively. These files should both contain two datasets: `genotypes` and `phenotypes`. The `genotypes` dataset should be an array of one-hot encoded allelic states for each sample and locus. Its shape should be `(num_samples, num_loci, num_allelic_states)`. (In most cases, `num_allelic_states` is either 2 for bi-allelic loci or 3 for bi-allelic loci in a diploid organism.) The `phenotypes` dataset is an array of quantitative phenotypes with dimensions `(num_samples, num_phenotypes)`. The order of the samples in the first dimension of the two datasets is assumed to match.
 
 ## Simulation scripts
 
 The repo contains two scripts for simulating genotype-phenotype data.
 
-- [`gpatlas/simulators/simulate_data_for_pub.py`](gpatlas/simulators/simulate_data_for_pub.py): This script is a refactored version of the simulation script `tools_for_phen_gen_creation.py` used in [the "nonlinear phenotypes" pub](https://research.arcadiascience.com/pub/result-nonlinear-phenotypes/release/4).
+- [`scripts/pub_gp_simulation.py`](scripts/pub_gp_simulation.py): This script is a refactored version of the simulation script `tools_for_phen_gen_creation.py` used in [the "nonlinear phenotypes" pub](https://research.arcadiascience.com/pub/result-nonlinear-phenotypes/release/4).
 
-- [`gpatlas/simulators/simulator.py`](gpatlas/simulators/simulator.py): This script is a somewhat more flexible simulation script that can be used to simulate genotype-phenotype data under a wider variety of (still simplistic) conditions. It is also more robustly tested (in [`gpatlas/tests/test_simulator.py`](gpatlas/tests/test_simulator.py)). Note that datasets generated by this script are not comparable to datasets generated by the `simulate_data_for_pub.py` script above, as it takes a different approach to simulating epistasis, pleiotropy, and environmental effects.
+- [`gpatlas/simulations.py`](gpatlas/simulations.py): This script is a somewhat more flexible simulation script that can be used to simulate genotype-phenotype data under a wider but still simplistic range of conditions. It is also more robustly tested (in [`gpatlas/tests/test_simulations.py`](gpatlas/tests/test_simulations.py)). Note that datasets generated by this script are not comparable to datasets generated by the `pub_gp_simulation.py` script above, as it takes a different approach to simulating epistasis, pleiotropy, and environmental effects.
 
 ## Development
 

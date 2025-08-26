@@ -1,3 +1,8 @@
+"""
+This script was used to troubleshoot the performance of the `FeatureAblation` class
+from the `captum` library.
+"""
+
 from timeit import timeit
 
 import click
