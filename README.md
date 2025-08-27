@@ -66,11 +66,11 @@ This will generate plots in the `plots/` directory and save the predicted phenot
 
 ### Dataset format
 
-The dataset directory should contain two HDF5 files: `train-data.h5` and `test-data.h5`, with the training data and test data, respectively. These files should both contain two datasets: `genotypes` and `phenotypes`. 
+The dataset directory should contain two HDF5 files: `train-data.h5` and `test-data.h5`, with the training data and test data, respectively. These files should both contain two datasets: `genotypes` and `phenotypes`.
 
-The `genotypes` dataset should be an array of one-hot encoded allelic states for each sample and locus. Its shape should be `(num_samples, num_loci, num_allelic_states)`. In most cases, `num_allelic_states` is either 2 for bi-allelic loci or 3 for bi-allelic loci in a diploid organism. 
+The `genotypes` dataset should be an array of one-hot encoded allelic states for each sample and locus. Its shape should be `(num_samples, num_loci, num_allelic_states)`. In most cases, `num_allelic_states` is either 2 for bi-allelic loci or 3 for bi-allelic loci in a diploid organism.
 
-The `phenotypes` dataset should be an array of quantitative phenotypes for each sample with shape `(num_samples, num_phenotypes)`. 
+The `phenotypes` dataset should be an array of quantitative phenotypes for each sample with shape `(num_samples, num_phenotypes)`.
 
 The order of the samples in the first dimension of the two datasets is assumed to match.
 
