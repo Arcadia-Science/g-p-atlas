@@ -1,10 +1,3 @@
-DOCS_DIR := ./docs
-
-# Load environment variables from the `.env` file if it exists.
-ifneq (,$(wildcard .env))
-    include .env
-endif
-
 .PHONY: lint
 lint:
 	ruff check --exit-zero .
