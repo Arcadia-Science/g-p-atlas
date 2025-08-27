@@ -9,13 +9,11 @@ import modal
 from gpatlas.cli import evaluate_command, train_command
 from gpatlas.utils import find_package_root_dir
 
-dotenv.load_dotenv()
-
+MODAL_APP_NAME = "2025-gpatlas-app"
 GPU_NAME = "a10g"
 CPU_COUNT = 4
 MEMORY_MB = 1024 * 10
 TIMEOUT_SECONDS = 3600
-S3_BUCKET_NAME = os.environ["S3_BUCKET_NAME"]
 VOLUME_PATH = pathlib.Path("/volume")
 
 # Note: this root directory only needs to be correct when executing this module locally, not when
@@ -47,7 +45,7 @@ image = (
     .add_local_python_source("gpatlas", copy=False)
 )
 
-app = modal.App(name="2025-kcc-gpatlas")
+app = modal.App(name=MODAL_APP_NAME)
 
 
 def app_function(**kwargs: Any):
@@ -62,7 +60,11 @@ def app_function(**kwargs: Any):
     }
     default_kwargs.update(kwargs)
 
-    s3_bucket_mount = modal.CloudBucketMount(S3_BUCKET_NAME, secret=modal.Secret.from_dotenv())
+    # We must load the .env file here (rather than at the top of this module)
+    # because this function only runs locally, not on Modal, and the .env file is only local.
+    dotenv.load_dotenv()
+    s3_bucket_name = os.environ["S3_BUCKET_NAME"]
+    s3_bucket_mount = modal.CloudBucketMount(s3_bucket_name, secret=modal.Secret.from_dotenv())
 
     return app.function(
         image=image,
