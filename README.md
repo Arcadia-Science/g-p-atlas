@@ -147,7 +147,13 @@ uv add --dev some-dev-package
 To update a dependency, use the following command:
 
 ```bash
-uv update some-package
+uv add --upgrade some-package
+```
+
+To update a development dependency, use the following command:
+
+```bash
+uv add --dev --upgrade some-dev-package
 ```
 
 Whenever you add or update a dependency, `uv` will automatically update both `pyproject.toml` and the `uv.lock` file. Make sure to commit the changes to **both** of these files to the repo.

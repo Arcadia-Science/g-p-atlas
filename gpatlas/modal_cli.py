@@ -19,23 +19,29 @@ VOLUME_PATH = pathlib.Path("/volume")
 # a valid `pathlib.Path` object.
 PACKAGE_ROOT_DIR = find_package_root_dir() or pathlib.Path("")
 
+PYTHON_VERSION = "3.12"
+
 image = (
-    modal.Image.debian_slim(python_version="3.12")
+    modal.Image.debian_slim(python_version=PYTHON_VERSION)
+    .workdir("/app")
     .add_local_file(
-        PACKAGE_ROOT_DIR / "pyproject.toml",
-        remote_path="/app/pyproject.toml",
-        copy=True,
+        PACKAGE_ROOT_DIR / "pyproject.toml", remote_path="/app/pyproject.toml", copy=True
     )
+    .add_local_file(PACKAGE_ROOT_DIR / "uv.lock", remote_path="/app/uv.lock", copy=True)
     .run_commands(
-        "pip install poetry",
-        # Configure poetry to install dependencies in the system Python environment.
-        "poetry config virtualenvs.create false",
+        "pip install --no-cache-dir uv",
+        "uv sync --no-install-project",
     )
-    # Install dependencies in a separate command to optimize caching.
-    .run_commands(
-        "cd /app && poetry install --no-root",
+    # Force the system Python interpreter (which modal uses) to import packages
+    # installed in the venv. (This is necessary because there appears to be no way to force
+    # `uv sync` to install dependencies in the system Python environment.)
+    .env(
+        {
+            "PYTHONPATH": f"/app/.venv/lib/python{PYTHON_VERSION}/site-packages",
+            "VIRTUAL_ENV": "/app/.venv",
+        }
     )
-    .add_local_python_source("gpatlas")
+    .add_local_python_source("gpatlas", copy=False)
 )
 
 app = modal.App(name="2025-kcc-gpatlas")
