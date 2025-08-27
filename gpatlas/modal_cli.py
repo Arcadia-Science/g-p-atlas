@@ -32,15 +32,10 @@ image = (
     .add_local_file(PACKAGE_ROOT_DIR / "uv.lock", remote_path="/app/uv.lock", copy=True)
     .run_commands(
         "pip install --no-cache-dir uv",
-        "uv sync --all-groups --no-install-project",
-    )
-    # Force the system Python interpreter (which modal uses) to use packages installed in the venv.
-    # This is necessary because there appears to be no way to force `uv sync` to install
-    # dependencies in the system Python environment.
-    .env(
-        {
-            "PYTHONPATH": f"/app/.venv/lib/python{PYTHON_VERSION}/site-packages",
-        }
+        # Export deps to a requirements.txt file because `uv sync` does not support installing
+        # dependencies in the system Python environment (but `uv pip install` does).
+        "uv export --all-groups --format requirements-txt --no-emit-project > /app/requirements.txt",
+        "uv pip install --system -r /app/requirements.txt",
     )
     .add_local_python_source("gpatlas", copy=False)
 )
