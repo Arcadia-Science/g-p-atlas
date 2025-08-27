@@ -56,7 +56,7 @@ def app_function(**kwargs: Any):
     default_kwargs.update(kwargs)
 
     # We must load the .env file here (rather than at the top of this module)
-    # because this function only runs locally, not on Modal, and the .env file is only local.
+    # because the .env file only exists locally (and not on Modal).
     dotenv.load_dotenv()
     s3_bucket_name = os.environ["S3_BUCKET_NAME"]
     s3_bucket_mount = modal.CloudBucketMount(s3_bucket_name, secret=modal.Secret.from_dotenv())

@@ -3,6 +3,8 @@ import numpy as np
 import torch
 from torch.utils.data.dataset import Dataset
 
+EPS = 1e-8
+
 
 class GPAtlasDataset(Dataset):
     def __init__(self, filepath: str, num_phenotypes: int | None = None):
@@ -39,6 +41,11 @@ class GPAtlasDataset(Dataset):
         # Take the first `num_phenotypes` phenotypes.
         if num_phenotypes is not None:
             self.phenotypes = self.phenotypes[:, :num_phenotypes]
+
+        # Mean-center and scale the phenotypes.
+        self.phenotypes = (self.phenotypes - self.phenotypes.mean(dim=0)) / (
+            self.phenotypes.std(dim=0) + EPS
+        )
 
     def __len__(self) -> int:
         return self.genotypes.shape[0]
