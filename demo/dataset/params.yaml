@@ -1,0 +1,18 @@
+broad_sense_heritability: 0.6
+effect_size_distribution: normal
+effect_size_scale: 1.0
+env_factors_weight: 0.5
+env_influence_probability: 0.0
+epistasis_probability: 0.2
+genome_type: haploid
+minor_allele_frequency_range:
+- 0.5
+- 0.5
+narrow_sense_heritability: 0.4
+num_causal_loci_per_phenotype: 3
+num_environmental_factors: 1
+num_loci: 30
+num_phenotypes: 3
+num_samples: 100
+pleiotropy_probability: 0.2
+seed: 42

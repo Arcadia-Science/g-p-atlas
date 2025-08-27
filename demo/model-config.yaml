@@ -1,0 +1,9 @@
+latent_dim: 4
+num_loci: 30
+num_alleles: 2
+num_input_phenotypes: 3
+num_output_phenotypes: 3
+phenotype_decoder_hidden_dim: 4
+phenotype_encoder_hidden_dim: 4
+genotype_decoder_hidden_dim: 4
+genotype_encoder_hidden_dim: null

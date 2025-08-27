@@ -74,6 +74,10 @@ The `phenotypes` dataset should be an array of quantitative phenotypes for each 
 
 The order of the samples in the first dimension of the two datasets is assumed to match.
 
+### Demo dataset
+
+This repo includes a small demo dataset in the `demo/` directory. See the [demo README](demo/README.md) for an example of how to train a model on this dataset.
+
 ## Simulation scripts
 
 The repo contains two scripts for simulating genotype-phenotype data.
