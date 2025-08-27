@@ -1,17 +1,21 @@
+import os
 import pathlib
 from typing import Any
 
 import click
+import dotenv
 import modal
 
 from gpatlas.cli import evaluate_command, train_command
 from gpatlas.utils import find_package_root_dir
 
+dotenv.load_dotenv()
+
 GPU_NAME = "a10g"
 CPU_COUNT = 4
 MEMORY_MB = 1024 * 10
 TIMEOUT_SECONDS = 3600
-S3_BUCKET_NAME = "2025-kcc-gpatlas"
+S3_BUCKET_NAME = os.environ["S3_BUCKET_NAME"]
 VOLUME_PATH = pathlib.Path("/volume")
 
 # Note: this root directory only needs to be correct when executing this module locally, not when
@@ -30,15 +34,14 @@ image = (
     .add_local_file(PACKAGE_ROOT_DIR / "uv.lock", remote_path="/app/uv.lock", copy=True)
     .run_commands(
         "pip install --no-cache-dir uv",
-        "uv sync --no-install-project",
+        "uv sync --all-groups --no-install-project",
     )
-    # Force the system Python interpreter (which modal uses) to import packages
-    # installed in the venv. (This is necessary because there appears to be no way to force
-    # `uv sync` to install dependencies in the system Python environment.)
+    # Force the system Python interpreter (which modal uses) to use packages installed in the venv.
+    # This is necessary because there appears to be no way to force `uv sync` to install
+    # dependencies in the system Python environment.
     .env(
         {
             "PYTHONPATH": f"/app/.venv/lib/python{PYTHON_VERSION}/site-packages",
-            "VIRTUAL_ENV": "/app/.venv",
         }
     )
     .add_local_python_source("gpatlas", copy=False)
