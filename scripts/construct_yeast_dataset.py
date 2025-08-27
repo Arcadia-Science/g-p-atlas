@@ -9,6 +9,7 @@
 """
 Construct training and test sets from the yeast dataset in the `2025-g-p-atlas` repo.
 """
+
 import gzip
 import pathlib
 import pickle

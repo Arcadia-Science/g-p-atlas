@@ -34,7 +34,7 @@ image = (
         "pip install --no-cache-dir uv",
         # Export deps to a requirements.txt file because `uv sync` does not support installing
         # dependencies in the system Python environment (but `uv pip install` does).
-        "uv export --all-groups --format requirements-txt --no-emit-project > /app/requirements.txt",
+        "uv export --all-groups --format requirements-txt --no-emit-project > /app/requirements.txt",  # noqa: E501
         "uv pip install --system -r /app/requirements.txt",
     )
     .add_local_python_source("gpatlas", copy=False)

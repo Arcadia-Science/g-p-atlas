@@ -20,8 +20,18 @@ class GPAtlasDataset(Dataset):
         """
 
         with h5py.File(filepath, "r") as file:
-            self.phenotypes = torch.tensor(np.array(file["phenotypes"]), dtype=torch.float32)
-            self.genotypes = torch.tensor(np.array(file["genotypes"]), dtype=torch.float32)
+            if "phenotypes" in file and "genotypes" in file:
+                self.phenotypes = torch.tensor(np.array(file["phenotypes"]), dtype=torch.float32)
+                self.genotypes = torch.tensor(np.array(file["genotypes"]), dtype=torch.float32)
+            elif "arrays" in file:
+                self.phenotypes = torch.tensor(
+                    np.array(file["arrays/phenotypes"]), dtype=torch.float32
+                )
+                self.genotypes = torch.tensor(
+                    np.array(file["arrays/genotypes"]), dtype=torch.float32
+                )
+            else:
+                raise ValueError("The dataset must contain either phenotypes or genotypes.")
 
         if self.phenotypes.shape[0] != self.genotypes.shape[0]:
             raise ValueError("The number of phenotypes and genotypes must be the same.")

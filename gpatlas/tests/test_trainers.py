@@ -123,7 +123,6 @@ def test_predict_phenotypes(trainer: GPAtlasTrainer, train_dataloader: DataLoade
 def test_calculate_feature_importances(trainer: GPAtlasTrainer, train_dataloader: DataLoader):
     """Test the feature importance calculation."""
 
-    num_samples = len(train_dataloader.dataset)  # type: ignore
     trainer.train(train_dataloader)
 
     test_dataloader = DataLoader(
@@ -131,10 +130,7 @@ def test_calculate_feature_importances(trainer: GPAtlasTrainer, train_dataloader
     )
 
     importances = trainer.calculate_feature_importances(test_dataloader, input_type="genotype")
-    assert importances.shape == (
-        num_samples,
-        trainer.model.config.num_loci * trainer.model.config.num_alleles,
-    )
+    assert importances.shape == (trainer.model.config.num_loci * trainer.model.config.num_alleles,)
 
     importances = trainer.calculate_feature_importances(test_dataloader, input_type="phenotype")
-    assert importances.shape == (num_samples, trainer.model.config.num_input_phenotypes)
+    assert importances.shape == (trainer.model.config.num_input_phenotypes,)
