@@ -21,10 +21,18 @@ This repo contains a Python package called `gpatlas` that is a more flexible and
 
 ## Usage
 
-This package does not have a formal versioned release or a release on PyPI. To install it, follow the directions in the ["Development"](#development) section below. Once the package is installed, the `gpatlas` CLI will be available. To train a model, use the `train` command:
+The package uses `uv` for dependency management, so the most convenient way to install it is to use `uv`:
 
 ```bash
-gpatlas train \
+uv sync --all-groups
+```
+
+Check out the [uv docs](https://docs.astral.sh/uv/getting-started/installation/) for instructions on how to install `uv` if you don't have it already.
+
+To train a model, use the `gpatlas train` command:
+
+```bash
+uv run gpatlas train \
     --dataset /path/to/dataset/directory \
     --output /path/to/output/directory \
     --model-config /path/to/model-config.yaml \
@@ -42,7 +50,7 @@ The `--model-config` and `--trainer-config` flags can be ommitted if `model-conf
 To evaluate a trained model, use the `evaluate` command:
 
 ```bash
-gpatlas evaluate \
+uv run gpatlas evaluate \
     --dataset /path/to/dataset/directory \
     --output /path/to/output/directory
 ```
@@ -85,7 +93,7 @@ The training datasets and model checkpoints are stored in an S3 bucket that is m
 The `gpatlas-modal` CLI is identical to the main `gpatlas` CLI documented above, except that the underlying commands are run on Modal. For example, to train a model on a GPU, run the following command:
 
 ```bash
-gpatlas-modal train \
+uv run gpatlas-modal train \
     --dataset /volume/some-dataset \
     --output /volume/some-output
 ```
@@ -125,9 +133,9 @@ g-p-atlas/
 
 ### Environment setup
 
-We use [`uv`](https://docs.astral.sh/uv/) for dependency management. First, [install `uv`](https://docs.astral.sh/uv/getting-started/installation/) globally.
+This project uses [`uv`](https://docs.astral.sh/uv/) for dependency management. See [here](https://docs.astral.sh/uv/getting-started/installation/) for instructions on how to install `uv` if you don't have it already.
 
-Next, install dependencies:
+First, install dependencies:
 
 ```bash
 uv sync --all-groups
@@ -139,7 +147,7 @@ It is convenient to work within the `uv` virtual environment. To do so, run the 
 source .venv/bin/activate
 ```
 
-Now, the `gpatlas` CLI will be available. See above for usage instructions.
+Now, the `gpatlas` CLI will be available. See the ["Usage" section](#usage) above for usage instructions.
 
 ### Testing
 
