@@ -17,16 +17,22 @@
 
 ## Overview
 
-This repo contains a Python package called `gpatlas` that is a more flexible and robust implementation of the G-P Atlas model discussed in the [G-P Atlas pub](https://research.arcadiascience.com/pub/result-g-p-atlas). This model was originally implemented in scripts found in the [2025-g-p-atlas](https://github.com/Arcadia-Science/2025-g-p-atlas) repo.
-
-The `gpatlas` package reorganizes the functionality of those scripts into a Python package. In particular, the model architecture is more modular and extensible (see [`gpatlas/models.py`](gpatlas/models.py)), and all of the major features are covered by unit tests (see the [Testing](#testing) section below).
+This repo contains a Python package called `gpatlas` that is a more flexible and robust implementation of the G-P Atlas model discussed in the [G-P Atlas pub](https://research.arcadiascience.com/pub/result-g-p-atlas). This model was originally implemented in scripts found in the [2025-g-p-atlas](https://github.com/Arcadia-Science/2025-g-p-atlas) repo. The package in this repo reorganizes the functionality in those scripts to make it more modular and reusable. It also adds a command-line interface for training and evalulating models locally and on [Modal](https://modal.com/). Finally, it adds unit tests for most of the major features.
 
 ## Usage
 
-This package does not have a formal versioned release or a release on PyPI. To install it, follow the directions under "Development" below. Once the package is installed, the `gpatlas` CLI will be available. To train a model, use the `train` command:
+The package uses `uv` for dependency management, so the most convenient way to install it is to use `uv`:
 
 ```bash
-gpatlas train \
+uv sync --all-groups
+```
+
+Check out the [uv docs](https://docs.astral.sh/uv/getting-started/installation/) for instructions on how to install `uv` if you don't have it already.
+
+To train a model, use the `gpatlas train` command:
+
+```bash
+uv run gpatlas train \
     --dataset /path/to/dataset/directory \
     --output /path/to/output/directory \
     --model-config /path/to/model-config.yaml \
@@ -37,9 +43,21 @@ This command will train a model and save the best model checkpoint and the train
 
 The `--dataset` directory should contain two HDF5 files: `train-data.h5` and `test-data.h5`, with the training data and test data, respectively. See below for more information on the format of these files.
 
-The `model-config.yaml` and `trainer-config.yaml` files should specify the model architecture and the training configuration. The schema for these config files is defined in `gpatlas/models.py` and `gpatlas/trainers.py`, respectively. The `--model-config` and `--trainer-config` flags can be ommitted if `model-config.yaml` and `trainer-config.yaml` are located in the dataset directory.
+The `model-config.yaml` and `trainer-config.yaml` files should specify the model architecture and the training configuration. The schema for these config files is defined by the pydantic models in [`gpatlas/models.py`](gpatlas/models.py) and [`gpatlas/trainers.py`](gpatlas/trainers.py), respectively.
 
-The `--output` directory will contain the following files and directories:
+The `--model-config` and `--trainer-config` flags can be ommitted if `model-config.yaml` and `trainer-config.yaml` are located in the dataset directory.
+
+To evaluate a trained model, use the `evaluate` command:
+
+```bash
+uv run gpatlas evaluate \
+    --dataset /path/to/dataset/directory \
+    --output /path/to/output/directory
+```
+
+This will generate plots in the `plots/` directory and save the predicted phenotypes in the `predictions/` directory of the output directory.
+
+After training and evaluating a model, the output directory will contain the following files and directories:
 
 ```
 /path/to/output/directory
@@ -51,19 +69,10 @@ The `--output` directory will contain the following files and directories:
 └── train-config.yaml
 ```
 
-To evaluate a trained model, use the `evaluate` command:
-
-```bash
-gpatlas evaluate \
-    --dataset /path/to/dataset/directory \
-    --output /path/to/output/directory
-```
-
-This will generate plots in the `plots/` directory and save the predicted phenotypes in the `predictions/` directory of the output directory.
 
 ### Dataset format
 
-The dataset directory should contain two HDF5 files: `train-data.h5` and `test-data.h5`, with the training data and test data, respectively. These files should both contain two datasets: `genotypes` and `phenotypes`.
+The dataset directory should contain two HDF5 files: `train-data.h5` and `test-data.h5`, containing the training data and test data, respectively. These files should both contain two datasets: either `genotypes` and `phenotypes` or `arrays/genotypes` and `arrays/phenotypes`.
 
 The `genotypes` dataset should be an array of one-hot encoded allelic states for each sample and locus. Its shape should be `(num_samples, num_loci, num_allelic_states)`. In most cases, `num_allelic_states` is either 2 for bi-allelic loci or 3 for bi-allelic loci in a diploid organism.
 
@@ -77,18 +86,14 @@ This repo includes a small demo dataset in the `demo/` directory. See the [demo 
 
 ## Usage on Modal
 
-We use [Modal](https://modal.com/) to conveniently run the `gpatlas` commands on GPU nodes. This requires a Modal account and a Modal API key. To set up the CLI, run the following command:
+We use [Modal](https://modal.com/) to conveniently run the `gpatlas` commands on GPU nodes. This requires a Modal account. See the [Modal docs](https://modal.com/docs/guide) for more information on how to set up the Modal CLI.
 
-```bash
-modal login
-```
-
-Training datasets and model checkpoints are stored in an S3 bucket that is mounted as a Modal volume. To set up the S3 bucket, copy the `.env.copy` file to `.env` and fill in the variables. The AWS access credentials in the `.env` file must have full access to the S3 bucket named in the `.env` file, and the bucket must already exist.
+The training datasets and model checkpoints are stored in an S3 bucket that is mounted as a Modal volume. To set up the S3 bucket, copy the `.env.copy` file to `.env` and fill in the variables. The AWS access credentials in the `.env` file must have full access to the S3 bucket named in the `.env` file, and the bucket must already exist.
 
 The `gpatlas-modal` CLI is identical to the main `gpatlas` CLI documented above, except that the underlying commands are run on Modal. For example, to train a model on a GPU, run the following command:
 
 ```bash
-gpatlas-modal train \
+uv run gpatlas-modal train \
     --dataset /volume/some-dataset \
     --output /volume/some-output
 ```
@@ -128,9 +133,9 @@ g-p-atlas/
 
 ### Environment setup
 
-We use [`uv`](https://docs.astral.sh/uv/) for dependency management. First, [install `uv`](https://docs.astral.sh/uv/getting-started/installation/) globally.
+This project uses [`uv`](https://docs.astral.sh/uv/) for dependency management. See [here](https://docs.astral.sh/uv/getting-started/installation/) for instructions on how to install `uv` if you don't have it already.
 
-Next, install dependencies:
+First, install dependencies:
 
 ```bash
 uv sync --all-groups
@@ -142,7 +147,7 @@ It is convenient to work within the `uv` virtual environment. To do so, run the 
 source .venv/bin/activate
 ```
 
-Now, the `gpatlas` CLI will be available. See above for usage instructions.
+Now, the `gpatlas` CLI will be available. See the ["Usage" section](#usage) above for usage instructions.
 
 ### Testing
 
