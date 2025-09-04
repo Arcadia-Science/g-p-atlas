@@ -220,7 +220,7 @@ def evaluate_command(
     filename_suffixes = ["ge", "pe"]
 
     for input_type, filename_suffix in zip(input_types, filename_suffixes, strict=True):
-        print(f"Predicting phenotypes for {len(test_loader)} samples...")
+        print(f"Predicting phenotypes for {len(test_dataset)} samples...")
 
         true_phenotypes, decoded_phenotypes, embeddings = trainer.predict_phenotypes(
             loader=test_loader, input_type=input_type
@@ -242,7 +242,7 @@ def evaluate_command(
 
         if calculate_feature_importances:
             print(
-                f"Calculating feature importances for {len(test_loader)} samples "
+                f"Calculating feature importances for {len(test_dataset)} samples "
                 f"using the {input_type} encoder..."
             )
             feature_attributions = trainer.calculate_feature_importances(

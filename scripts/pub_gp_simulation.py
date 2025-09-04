@@ -1,3 +1,9 @@
+#!/usr/bin/env -S uv run
+# /// script
+# dependencies = [
+#     "numpy~=1.26",
+# ]
+# ///
 """
 This script is a refactored version of the simulation script `tools_for_phen_gen_creation.py`
 used in [the 'nonlinear phenotypes' pub](https://research.arcadiascience.com/pub/result-nonlinear-phenotypes/release/4).

@@ -1,5 +1,5 @@
 """
-This module implements a rudimentary simulator for genotype-phenotype datasets.
+This is a rudimentary simulation script for genotype-phenotype datasets.
 
 It supports the following features:
 - Additive effects.
@@ -11,6 +11,40 @@ It does not support:
 - Gene-environment interactions.
 - Linkage disequilibrium.
 - Dominance or other non-additive effects.
+
+Example usage:
+
+```bash
+uv run -m gpatlas.simulation \
+    --output-dirpath /path/to/output/directory \
+    --config-filepath /path/to/config.yaml
+```
+
+Example config file:
+
+```yaml
+num_samples: 1000
+num_loci: 1000
+minor_allele_freq_range: [0.4, 0.6]
+genome_type: haploid
+
+num_phenotypes: 30
+num_causal_loci_per_phenotype: 10
+
+heritability: 1.0
+
+pleiotropy_probability: 0.2
+epistasis_probability: 0.2
+
+effect_size_distribution: normal
+effect_size_mean: 0.0
+effect_size_std: 1.0
+
+env_factor_weight: 0.0  # Set to zero to disable environmental factors.
+num_environmental_factors: 1
+env_influence_probability: 0.0
+env_effect_size_range: [0.0, 1.0]
+```
 
 """
 

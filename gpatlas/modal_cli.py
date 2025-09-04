@@ -1,17 +1,19 @@
+import os
 import pathlib
 from typing import Any
 
 import click
+import dotenv
 import modal
 
-from gpatlas.cli.gpatlas import evaluate_command, train_command
+from gpatlas.cli import evaluate_command, train_command
 from gpatlas.utils import find_package_root_dir
 
+MODAL_APP_NAME = "2025-gpatlas-app"
 GPU_NAME = "a10g"
 CPU_COUNT = 4
 MEMORY_MB = 1024 * 10
 TIMEOUT_SECONDS = 3600
-S3_BUCKET_NAME = "2025-kcc-gpatlas"
 VOLUME_PATH = pathlib.Path("/volume")
 
 # Note: this root directory only needs to be correct when executing this module locally, not when
@@ -19,26 +21,26 @@ VOLUME_PATH = pathlib.Path("/volume")
 # a valid `pathlib.Path` object.
 PACKAGE_ROOT_DIR = find_package_root_dir() or pathlib.Path("")
 
+PYTHON_VERSION = "3.12"
+
 image = (
-    modal.Image.debian_slim(python_version="3.12")
+    modal.Image.debian_slim(python_version=PYTHON_VERSION)
+    .workdir("/app")
     .add_local_file(
-        PACKAGE_ROOT_DIR / "pyproject.toml",
-        remote_path="/app/pyproject.toml",
-        copy=True,
+        PACKAGE_ROOT_DIR / "pyproject.toml", remote_path="/app/pyproject.toml", copy=True
     )
+    .add_local_file(PACKAGE_ROOT_DIR / "uv.lock", remote_path="/app/uv.lock", copy=True)
     .run_commands(
-        "pip install poetry",
-        # Configure poetry to install dependencies in the system Python environment.
-        "poetry config virtualenvs.create false",
+        "pip install --no-cache-dir uv",
+        # Export deps to a requirements.txt file because `uv sync` does not support installing
+        # dependencies in the system Python environment (but `uv pip install` does).
+        "uv export --all-groups --format requirements-txt --no-emit-project > /app/requirements.txt",  # noqa: E501
+        "uv pip install --system -r /app/requirements.txt",
     )
-    # Install dependencies in a separate command to optimize caching.
-    .run_commands(
-        "cd /app && poetry install --no-root",
-    )
-    .add_local_python_source("gpatlas")
+    .add_local_python_source("gpatlas", copy=False)
 )
 
-app = modal.App(name="2025-kcc-gpatlas")
+app = modal.App(name=MODAL_APP_NAME)
 
 
 def app_function(**kwargs: Any):
@@ -53,7 +55,11 @@ def app_function(**kwargs: Any):
     }
     default_kwargs.update(kwargs)
 
-    s3_bucket_mount = modal.CloudBucketMount(S3_BUCKET_NAME, secret=modal.Secret.from_dotenv())
+    # We must load the .env file here (rather than at the top of this module)
+    # because the .env file only exists locally (and not on Modal).
+    dotenv.load_dotenv()
+    s3_bucket_name = os.environ["S3_BUCKET_NAME"]
+    s3_bucket_mount = modal.CloudBucketMount(s3_bucket_name, secret=modal.Secret.from_dotenv())
 
     return app.function(
         image=image,
@@ -69,7 +75,7 @@ def run_command_on_modal(command_name: str, command_kwargs: dict[str, Any]):
     This function is intended to be decorated with an `app.function` decorator.
     """
     # Import the original CLI commands on modal.
-    from gpatlas.cli.gpatlas import evaluate_command, train_command
+    from gpatlas.cli import evaluate_command, train_command
 
     commands = {
         "train": train_command,

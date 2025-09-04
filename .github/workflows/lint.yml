@@ -27,7 +27,7 @@ jobs:
 
       - name: Install the project
         # All dependencies are needed for type checking.
-        run: uv sync --locked --all-extras --dev
+        run: uv sync --locked --all-groups
 
       - name: Run linting
         run: uv run make lint

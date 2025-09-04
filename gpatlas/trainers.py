@@ -246,12 +246,13 @@ class GPAtlasTrainer:
         loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
     ) -> None:
         """
-        Train the model.
+        Train the full model in two stages:
+        1. Train the phenotype encoder-decoder.
+        2. Freeze the phenotype encoder-decoder and train the genotype encoder.
         """
         self.model.to(self.device)
         self.model.train()
 
-        # First train the phenotype encoder-decoder.
         print("Training phenotype encoder-decoder...")
         self._train_phenotype_encoder_decoder(loader)
 
@@ -259,11 +260,9 @@ class GPAtlasTrainer:
         if self.checkpoint_filepath is not None:
             self.model.load_from_checkpoint(self.checkpoint_filepath)
 
-        # Freeze the phenotype encoder-decoder before training the genotype encoder.
         print("Freezing phenotype encoder-decoder...")
         self.model.freeze_phenotype_encoder_decoder()
 
-        # With the phenotype encoder-decoder frozen, train the genotype encoder.
         print("Training genotype encoder...")
         self._train_genotype_encoder(loader)
 
@@ -330,95 +329,6 @@ class GPAtlasTrainer:
 
         return (all_true_phenotypes, all_decoded_phenotypes, all_embeddings)
 
-    def _calculate_genotype_feature_importances(
-        self,
-        loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
-    ) -> NDArray[np.float32]:
-        """
-        Calculate the importance of each allelic state in the input genotypes
-        for predicting all of the phenotypes.
-        """
-
-        self.model.to(self.device)
-        self.model.eval()
-
-        def forward_func(genotypes: torch.Tensor, true_phenotypes: torch.Tensor) -> torch.Tensor:
-            """
-            Forward function for the feature ablation method from Captum.
-            """
-            predicted_phenotypes = self.model.phenotype_decoder(
-                self.model.genotype_encoder(genotypes)
-            )
-
-            # TODO: use an unreduced loss function to enable calculating per-phenotype importances.
-            return F.mse_loss(
-                predicted_phenotypes + EPS,
-                true_phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
-            )
-
-        ablator = FeatureAblation(forward_func)
-
-        num_samples = len(loader.dataset)  # type: ignore
-        num_input_features = self.model.config.num_loci * self.model.config.num_alleles
-        attributions = np.zeros((num_samples, num_input_features), dtype=np.float32)
-
-        start_idx = 0
-        for genotypes, phenotypes in tqdm(loader, total=len(loader)):
-            genotypes = genotypes.to(self.device)
-            phenotypes = phenotypes.to(self.device)
-            batch_size = genotypes.shape[0]
-
-            with torch.no_grad():
-                attribution = ablator.attribute(genotypes, additional_forward_args=phenotypes)
-
-            end_idx = start_idx + batch_size
-            attributions[start_idx:end_idx, :] = attribution.squeeze().detach().cpu().numpy()
-            start_idx = end_idx
-
-        return attributions
-
-    def _calculate_phenotype_feature_importances(
-        self,
-        loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
-    ) -> NDArray[np.float32]:
-        """
-        Calculate the importance of each phenotype for predicting all of the phenotypes.
-        """
-        self.model.to(self.device)
-        self.model.eval()
-
-        def forward_func(phenotypes: torch.Tensor, true_phenotypes: torch.Tensor) -> torch.Tensor:
-            """
-            Forward function for the feature ablation method from Captum.
-            """
-            predicted_phenotypes = self.model.phenotype_decoder(
-                self.model.phenotype_encoder(phenotypes)
-            )
-            return F.mse_loss(
-                predicted_phenotypes + EPS,
-                true_phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
-            )
-
-        ablator = FeatureAblation(forward_func)
-
-        num_samples = len(loader.dataset)  # type: ignore
-        num_input_features = self.model.config.num_input_phenotypes
-        attributions = np.zeros((num_samples, num_input_features), dtype=np.float32)
-
-        start_idx = 0
-        for _, phenotypes in tqdm(loader, total=len(loader)):
-            phenotypes = phenotypes.to(self.device)
-            batch_size = phenotypes.shape[0]
-
-            with torch.no_grad():
-                attribution = ablator.attribute(phenotypes, additional_forward_args=phenotypes)
-
-            end_idx = start_idx + batch_size
-            attributions[start_idx:end_idx, :] = attribution.squeeze().detach().cpu().numpy()
-            start_idx = end_idx
-
-        return attributions
-
     def calculate_feature_importances(
         self,
         loader: torch.utils.data.DataLoader[tuple[torch.Tensor, torch.Tensor]],
@@ -428,7 +338,52 @@ class GPAtlasTrainer:
         Calculate the importance of each input feature (genotype or phenotype)
         for predicting all of the phenotypes.
         """
-        if input_type == "genotype":
-            return self._calculate_genotype_feature_importances(loader=loader)
-        else:
-            return self._calculate_phenotype_feature_importances(loader=loader)
+
+        def forward_func(
+            input: torch.Tensor, encoder: torch.nn.Module, true_phenotypes: torch.Tensor
+        ) -> torch.Tensor:
+            """
+            Forward function for the `FeatureAblation` method of Captum.
+            """
+            predicted_phenotypes = self.model.phenotype_decoder(encoder(input))
+
+            # TODO: use an unreduced loss function to enable calculating per-phenotype importances.
+            return F.mse_loss(
+                predicted_phenotypes + EPS,
+                true_phenotypes[:, : self.model.config.num_output_phenotypes] + EPS,
+            )
+
+        self.model.to(self.device)
+        self.model.eval()
+
+        ablator = FeatureAblation(forward_func)
+
+        encoder = (
+            self.model.genotype_encoder
+            if input_type == "genotype"
+            else self.model.phenotype_encoder
+        )
+
+        num_input_features = (
+            self.model.config.num_loci * self.model.config.num_alleles
+            if input_type == "genotype"
+            else self.model.config.num_input_phenotypes
+        )
+
+        num_batches = len(loader)
+        attributions = np.zeros((num_batches, num_input_features), dtype=np.float32)
+
+        for batch_idx, (genotypes, phenotypes) in tqdm(enumerate(loader), total=num_batches):
+            input = genotypes if input_type == "genotype" else phenotypes
+            input = input.to(self.device)
+            phenotypes = phenotypes.to(self.device)
+
+            with torch.no_grad():
+                attribution = ablator.attribute(
+                    input, additional_forward_args=(encoder, phenotypes)
+                )
+            # The ablator averages over all of the samples in the batch,
+            # so `attribution` has shape `(num_input_features,)`.
+            attributions[batch_idx, :] = attribution.squeeze().detach().cpu().numpy()
+
+        return attributions.mean(axis=0)
